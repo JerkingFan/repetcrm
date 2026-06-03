@@ -312,6 +312,7 @@ export default function Whiteboard({
   const historyPastRef = useRef<BoardState[]>([]);
   const historyFutureRef = useRef<BoardState[]>([]);
   const eraseHistoryPushedRef = useRef(false);
+  const erasingRef = useRef(false);
   const uploadInFlightRef = useRef(false);
 
   const wsUrl = useMemo(() => api.boards.wsUrl(boardId, shareToken, authToken), [boardId, shareToken, authToken]);
@@ -638,15 +639,38 @@ export default function Whiteboard({
     imageEditRef.current = { active: false };
   }, [commitImageUpdate]);
 
+  const eraseAt = useCallback(
+    (p: Point) => {
+      if (!eraseHistoryPushedRef.current) {
+        pushHistory();
+        eraseHistoryPushedRef.current = true;
+      }
+      const r = 0.04 / camRef.current.zoom;
+      sendOp({ op: "erase", p, r });
+      setState((prev) => applyErase(normalizeState(prev), p, r));
+    },
+    [sendOp, pushHistory]
+  );
+
+  const stopErasing = useCallback(() => {
+    erasingRef.current = false;
+    eraseHistoryPushedRef.current = false;
+  }, []);
+
   useEffect(() => {
     const endImageEdit = () => finishImageEdit();
+    const endErasing = () => stopErasing();
     window.addEventListener("pointerup", endImageEdit);
     window.addEventListener("pointercancel", endImageEdit);
+    window.addEventListener("pointerup", endErasing);
+    window.addEventListener("pointercancel", endErasing);
     return () => {
       window.removeEventListener("pointerup", endImageEdit);
       window.removeEventListener("pointercancel", endImageEdit);
+      window.removeEventListener("pointerup", endErasing);
+      window.removeEventListener("pointercancel", endErasing);
     };
-  }, [finishImageEdit]);
+  }, [finishImageEdit, stopErasing]);
 
   const [textDraft, setTextDraft] = useState<{ active: boolean; x: number; y: number; value: string }>({
     active: false,
@@ -692,7 +716,9 @@ export default function Whiteboard({
         return;
       }
       if (tool === "erase") {
-        eraseHistoryPushedRef.current = false;
+        erasingRef.current = true;
+        eraseAt(p);
+        return;
       }
       if (tool === "pen") {
         pushHistory();
@@ -712,7 +738,7 @@ export default function Whiteboard({
         }, 0);
       }
     },
-    [readonly, tool, color, width, sendOp, cam, state, pushHistory]
+    [readonly, tool, color, width, sendOp, cam, state, pushHistory, eraseAt]
   );
 
   const onPointerMove = useCallback(
@@ -770,14 +796,8 @@ export default function Whiteboard({
         }
       }
 
-      if (tool === "erase") {
-        if (!eraseHistoryPushedRef.current) {
-          pushHistory();
-          eraseHistoryPushedRef.current = true;
-        }
-        const r = 0.04 / cam.zoom;
-        sendOp({ op: "erase", p, r });
-        setState((prev) => applyErase(normalizeState(prev), p, r));
+      if (tool === "erase" && erasingRef.current) {
+        eraseAt(p);
         return;
       }
 
@@ -791,7 +811,7 @@ export default function Whiteboard({
       });
       scheduleStrokePoint(id, p);
     },
-    [readonly, tool, scheduleStrokePoint, sendOp, cam, pushHistory, updateImageInState]
+    [readonly, tool, scheduleStrokePoint, sendOp, cam, pushHistory, updateImageInState, eraseAt]
   );
 
   const onPointerUp = useCallback(
@@ -802,9 +822,9 @@ export default function Whiteboard({
       drawingRef.current.id = null;
       panRef.current.active = false;
       finishImageEdit();
-      eraseHistoryPushedRef.current = false;
+      stopErasing();
     },
-    [finishImageEdit]
+    [finishImageEdit, stopErasing]
   );
 
   const handleImageResizeStart = useCallback(
@@ -850,11 +870,17 @@ export default function Whiteboard({
 
   const onWrapPointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!imageEditRef.current.active) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
       const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
       const p = screenToWorld(pScreen, camRef.current);
+
+      if (tool === "erase" && erasingRef.current) {
+        eraseAt(p);
+        return;
+      }
+
+      if (!imageEditRef.current.active) return;
       const id = imageEditRef.current.id;
       if (!id) return;
       if (imageEditRef.current.mode === "move" && imageEditRef.current.grab) {
@@ -869,7 +895,7 @@ export default function Whiteboard({
         updateImageInState(id, rect);
       }
     },
-    [updateImageInState]
+    [updateImageInState, tool, eraseAt]
   );
 
   const onUploadImage = useCallback(
