@@ -7,6 +7,7 @@ import { getToken } from "@/lib/auth";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import Alert from "@/components/Alert";
 import Whiteboard, { BoardState } from "@/components/Whiteboard";
+import { toast } from "@/lib/toast";
 
 type Board = {
   id: number;
@@ -92,8 +93,8 @@ export default function BoardPage() {
                 onClick={() => {
                   if (!shareUrl) return;
                   navigator.clipboard.writeText(shareUrl).then(
-                    () => alert("Ссылка скопирована"),
-                    () => alert("Не удалось скопировать")
+                    () => toast("Ссылка скопирована", "success"),
+                    () => toast("Не удалось скопировать", "error")
                   );
                 }}
               >

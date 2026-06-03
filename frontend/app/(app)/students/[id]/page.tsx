@@ -12,6 +12,7 @@ import {
 import { getToken } from "@/lib/auth";
 import { api, StudentRecord } from "@/lib/api";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import { toast } from "@/lib/toast";
 
 type StudentDetail = StudentRecord & {
   lessons: Array<{
@@ -40,7 +41,7 @@ export default function StudentDetailPage() {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
-      alert("Ошибка скачивания PDF");
+      toast("Ошибка скачивания PDF", "error");
       return;
     }
     const blob = await res.blob();

@@ -67,6 +67,8 @@ repetcrm/
 Пример: `deploy/nginx/repetcrm.conf.example`  
 После настройки укажите `NEXT_PUBLIC_API_URL=https://ваш-домен/api`.
 
+**Виртуальная доска (WebSocket):** увеличьте `proxy_read_timeout` для `/api/boards/ws/` (см. пример nginx и [deploy/WEBSOCKET.md](WEBSOCKET.md)). Для API с доской рекомендуется **`uvicorn --workers 1`** или Redis pub/sub между воркерами.
+
 ---
 
 ## Вариант 2: Без Docker (VPS вручную)

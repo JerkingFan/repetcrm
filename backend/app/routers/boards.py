@@ -238,7 +238,12 @@ def _compact_state(state: dict) -> None:
 
 
 class _BoardRoomStore:
-    """In-memory state per board + debounced SQLite/Postgres persist."""
+    """
+    In-memory state per board + debounced SQLite/Postgres persist.
+
+    Продакшен: при uvicorn --workers > 1 нужен Redis pub/sub для broadcast между
+    процессами или один воркер для WS. См. deploy/WEBSOCKET.md.
+    """
 
     def __init__(self):
         self._states: dict[int, dict] = {}

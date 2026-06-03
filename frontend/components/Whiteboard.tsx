@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { api } from "@/lib/api";
 import { getBoardImage, pruneImageCache, resolveBoardImageUrl } from "@/lib/boardImageCache";
 import { simplifyStroke } from "@/lib/strokeSimplify";
+import { toast } from "@/lib/toast";
+
+const WS_PING_INTERVAL_MS = 25_000;
 import {
   ArrowDownTrayIcon,
   ArrowUturnLeftIcon,
@@ -565,8 +568,16 @@ export default function Whiteboard({
   useEffect(() => {
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
     let socket: WebSocket | null = null;
     let attempt = 0;
+
+    const clearPingTimer = () => {
+      if (pingTimer !== null) {
+        clearInterval(pingTimer);
+        pingTimer = null;
+      }
+    };
 
     const clearReconnectTimer = () => {
       if (reconnectTimer !== null) {
@@ -598,9 +609,28 @@ export default function Whiteboard({
         attempt = 0;
         setReconnectAttempt(0);
         setStatus("online");
+        clearPingTimer();
+        pingTimer = setInterval(() => {
+          const s = wsRef.current;
+          if (s?.readyState === WebSocket.OPEN) {
+            try {
+              s.send(JSON.stringify({ type: "ping" }));
+            } catch {
+              // ignore
+            }
+          }
+        }, WS_PING_INTERVAL_MS);
       };
 
-      socket.onmessage = handleWsMessage;
+      socket.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data as string);
+          if (msg?.type === "pong") return;
+        } catch {
+          // fall through to main handler
+        }
+        handleWsMessage(ev);
+      };
 
       socket.onerror = () => {
         if (!cancelled) setStatus("offline");
@@ -618,6 +648,7 @@ export default function Whiteboard({
     return () => {
       cancelled = true;
       clearReconnectTimer();
+      clearPingTimer();
       const clientId = clientIdRef.current;
       const s = socket;
       try {
@@ -972,7 +1003,7 @@ export default function Whiteboard({
     async (file: File) => {
       if (uploadInFlightRef.current) return;
       if (!shareToken) {
-        alert("Для загрузки картинки нужен share-токен доски.");
+        toast("Для загрузки картинки нужен share-токен доски.", "error");
         return;
       }
       uploadInFlightRef.current = true;
@@ -1003,7 +1034,7 @@ export default function Whiteboard({
         setSelectedImageId(id);
         setTool("image");
       } catch {
-        alert("Не удалось загрузить картинку");
+        toast("Не удалось загрузить картинку", "error");
       } finally {
         uploadInFlightRef.current = false;
       }
@@ -1144,7 +1175,8 @@ export default function Whiteboard({
         onDrop={(e) => {
           e.preventDefault();
           const f = e.dataTransfer.files?.[0];
-          if (f && f.type.startsWith("image/")) onUploadImage(f).catch(() => alert("Не удалось загрузить картинку"));
+          if (f && f.type.startsWith("image/"))
+            onUploadImage(f).catch(() => toast("Не удалось загрузить картинку", "error"));
         }}
       >
         {textDraft.active && (
@@ -1384,7 +1416,7 @@ export default function Whiteboard({
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
-                      if (f) onUploadImage(f).catch(() => alert("Не удалось загрузить картинку"));
+                      if (f) onUploadImage(f).catch(() => toast("Не удалось загрузить картинку", "error"));
                       e.currentTarget.value = "";
                     }}
                   />
