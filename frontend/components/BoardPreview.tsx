@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type { BoardState } from "@/components/Whiteboard";
 
 type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
+type Point = { x: number; y: number };
 
 function normalizeState(raw: BoardState | undefined): BoardState {
   const s = (raw || {}) as Partial<BoardState>;
@@ -47,11 +48,44 @@ function computeBounds(state: BoardState): Bounds | null {
   return { minX, minY, maxX, maxY };
 }
 
+/** Толщина штриха на доске в мировых координатах (как в Whiteboard). */
+function strokeWidthWorld(strokeWidth: number, canvasPixels = 1200): number {
+  return (strokeWidth || 3) / canvasPixels;
+}
+
+/** Толщина линии в пикселях превью. */
+function strokeWidthPreviewPx(strokeWidth: number, fitScale: number): number {
+  const world = strokeWidthWorld(strokeWidth);
+  return Math.max(0.75, Math.min(2.5, world * fitScale));
+}
+
 function resolveImageUrl(url: string): string {
   if (typeof window === "undefined") return url;
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
   if (url.startsWith("/")) return `${window.location.origin}${url}`;
   return url;
+}
+
+function drawStrokePath(ctx: CanvasRenderingContext2D, pts: Point[], toScreen: (p: Point) => Point) {
+  if (pts.length < 1) return;
+  const p0 = toScreen(pts[0]);
+  ctx.beginPath();
+  ctx.moveTo(p0.x, p0.y);
+  if (pts.length === 2) {
+    const p1 = toScreen(pts[1]);
+    ctx.lineTo(p1.x, p1.y);
+  } else if (pts.length > 2) {
+    for (let i = 1; i < pts.length - 1; i++) {
+      const pt = toScreen(pts[i]);
+      const next = toScreen(pts[i + 1]);
+      const midX = (pt.x + next.x) / 2;
+      const midY = (pt.y + next.y) / 2;
+      ctx.quadraticCurveTo(pt.x, pt.y, midX, midY);
+    }
+    const last = toScreen(pts[pts.length - 1]);
+    ctx.lineTo(last.x, last.y);
+  }
+  ctx.stroke();
 }
 
 export default function BoardPreview({
@@ -115,38 +149,44 @@ export default function BoardPreview({
       const pad = Math.max((bounds.maxX - bounds.minX) * 0.08, 0.02);
       const bw = bounds.maxX - bounds.minX + pad * 2;
       const bh = bounds.maxY - bounds.minY + pad * 2;
-      const scale = Math.min(w / bw, h / bh);
-      const ox = (w - bw * scale) / 2 - (bounds.minX - pad) * scale;
-      const oy = (h - bh * scale) / 2 - (bounds.minY - pad) * scale;
+      const fitScale = Math.min(w / bw, h / bh);
+      const ox = (w - bw * fitScale) / 2;
+      const oy = (h - bh * fitScale) / 2;
 
-      ctx.save();
-      ctx.translate(ox, oy);
-      ctx.scale(scale, scale);
+      const toScreen = (p: Point): Point => ({
+        x: (p.x - bounds.minX + pad) * fitScale + ox,
+        y: (p.y - bounds.minY + pad) * fitScale + oy,
+      });
+
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
 
       for (const st of state.strokes) {
         const pts = st.points || [];
         if (pts.length < 1) continue;
         ctx.strokeStyle = st.color || "#1E3A8A";
-        ctx.lineWidth = Math.max((st.width || 3) / scale, 0.5 / dpr);
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-        ctx.stroke();
+        ctx.lineWidth = strokeWidthPreviewPx(st.width, fitScale);
+        drawStrokePath(ctx, pts, toScreen);
       }
 
       for (const t of state.texts) {
         if (!t.text) continue;
+        const topLeft = toScreen({ x: t.x, y: t.y });
+        const worldFont = (t.size || 24) / 1200;
+        const fontPx = Math.max(8, Math.min(14, worldFont * fitScale));
         ctx.fillStyle = t.color || "#1E3A8A";
-        const fontSize = Math.max((t.size || 24) / scale, 4 / dpr);
-        ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
+        ctx.font = `${fontPx}px Inter, system-ui, sans-serif`;
         ctx.textBaseline = "top";
-        ctx.fillText(t.text, t.x, t.y);
+        ctx.fillText(t.text, topLeft.x, topLeft.y);
       }
 
       for (const im of state.images) {
         if (!im.url) continue;
+        const tl = toScreen({ x: im.x, y: im.y });
+        const br = toScreen({ x: im.x + im.w, y: im.y + im.h });
+        const iw = br.x - tl.x;
+        const ih = br.y - tl.y;
+        if (iw < 1 || ih < 1) continue;
         try {
           const image = new Image();
           image.crossOrigin = "anonymous";
@@ -156,14 +196,12 @@ export default function BoardPreview({
             image.src = resolveImageUrl(im.url);
           });
           if (cancelled) return;
-          ctx.drawImage(image, im.x, im.y, im.w, im.h);
+          ctx.drawImage(image, tl.x, tl.y, iw, ih);
         } catch {
           ctx.fillStyle = "rgba(148, 163, 184, 0.35)";
-          ctx.fillRect(im.x, im.y, im.w, im.h);
+          ctx.fillRect(tl.x, tl.y, iw, ih);
         }
       }
-
-      ctx.restore();
     };
 
     draw();
