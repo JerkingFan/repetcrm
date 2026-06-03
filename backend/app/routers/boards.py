@@ -113,6 +113,7 @@ def update_board(board_id: int, payload: dict[str, Any], user: User = Depends(ge
     if payload.get("state_json") is not None:
         # state_json is stored as JSON string
         b.state_json = json.dumps(payload["state_json"], ensure_ascii=False)
+        b.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(b)
     return _board_to_dict(b)
@@ -123,6 +124,7 @@ def update_board_public(board_id: int, token: str, payload: dict[str, Any], db: 
     b = _allow_board_access(db, board_id, share_token=token)
     if payload.get("state_json") is not None:
         b.state_json = json.dumps(payload["state_json"], ensure_ascii=False)
+        b.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(b)
     return _board_to_dict(b)
@@ -438,6 +440,7 @@ async def board_ws(ws: WebSocket, board_id: int):
                 state = _load_state(b)
                 state = _apply_op(state, op)
                 b.state_json = json.dumps(state, ensure_ascii=False)
+                b.updated_at = datetime.utcnow()
                 db.commit()
                 await _manager.broadcast(board_id, {"type": "op", "op": op}, exclude=ws)
             elif msg.get("type") == "ping":

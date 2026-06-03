@@ -6,13 +6,17 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import Alert from "@/components/Alert";
+import BoardPreview from "@/components/BoardPreview";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import type { BoardState } from "@/components/Whiteboard";
+import { formatBoardUpdatedAt } from "@/lib/formatDate";
 
 type Board = {
   id: number;
   title: string;
   share_token: string;
   updated_at?: string;
+  state_json?: BoardState;
 };
 
 export default function BoardsPage() {
@@ -75,22 +79,25 @@ export default function BoardsPage() {
         </button>
       </div>
 
-      <div className="grid gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         {boards.length === 0 ? (
-          <p className="text-slate-500">Досок пока нет — создайте первую.</p>
+          <p className="text-slate-500 sm:col-span-2">Досок пока нет — создайте первую.</p>
         ) : (
           boards.map((b) => (
             <Link
               key={b.id}
               href={`/boards/${b.id}`}
-              className="p-5 rounded-2xl bg-white border shadow-sm hover:shadow-md transition"
+              className="rounded-2xl bg-white border shadow-sm hover:shadow-md transition overflow-hidden flex flex-col"
             >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="font-semibold text-brand-blue">{b.title || "Виртуальная доска"}</p>
-                  <p className="text-xs text-slate-500 mt-1">ID: {b.id}</p>
+              <div className="aspect-[5/3] w-full bg-slate-50 border-b border-slate-100">
+                <BoardPreview state={b.state_json} className="w-full h-full" />
+              </div>
+              <div className="p-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-brand-blue truncate">{b.title || "Виртуальная доска"}</p>
+                  <p className="text-xs text-slate-500 mt-1">{formatBoardUpdatedAt(b.updated_at)}</p>
                 </div>
-                <span className="text-sm text-slate-500">Открыть →</span>
+                <span className="text-sm text-slate-500 shrink-0">Открыть →</span>
               </div>
             </Link>
           ))
