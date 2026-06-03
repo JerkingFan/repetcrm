@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import {
-  ArrowsPointingOutIcon,
   ArrowDownTrayIcon,
+  ArrowUturnLeftIcon,
+  ArrowUturnRightIcon,
   PencilIcon,
   CursorArrowRaysIcon,
   PhotoIcon,
-  XMarkIcon,
   MinusIcon,
   PlusIcon,
   TrashIcon,
@@ -83,6 +83,120 @@ function worldToScreen(p: Point, cam: Camera): Point {
   return { x: (p.x - cam.x) * cam.zoom, y: (p.y - cam.y) * cam.zoom };
 }
 
+function cloneState(s: BoardState): BoardState {
+  return JSON.parse(JSON.stringify(normalizeState(s))) as BoardState;
+}
+
+function textHit(t: TextItem, p: Point, r: number): boolean {
+  const w = Math.max(t.text.length, 1) * t.size * 0.55;
+  const h = t.size * 1.25;
+  return p.x >= t.x - r && p.x <= t.x + w + r && p.y >= t.y - r && p.y <= t.y + h + r;
+}
+
+function imageHit(im: ImageItem, p: Point, r: number): boolean {
+  return p.x >= im.x - r && p.x <= im.x + im.w + r && p.y >= im.y - r && p.y <= im.y + im.h + r;
+}
+
+function applyErase(cur: BoardState, p: Point, r: number): BoardState {
+  const r2 = r * r;
+  const strokes = cur.strokes.filter(
+    (st) => !st.points.some((pt) => (pt.x - p.x) ** 2 + (pt.y - p.y) ** 2 <= r2)
+  );
+  const texts = cur.texts.filter((t) => !textHit(t, p, r));
+  const images = cur.images.filter((im) => !imageHit(im, p, r));
+  return { ...cur, strokes, texts, images };
+}
+
+const MAX_HISTORY = 50;
+
+function applyBoardOp(
+  prev: BoardState,
+  op: {
+    op?: string;
+    id?: unknown;
+    color?: unknown;
+    width?: unknown;
+    p?: unknown;
+    r?: unknown;
+    item?: unknown;
+    x?: unknown;
+    y?: unknown;
+    state?: unknown;
+  }
+): BoardState {
+  const cur = normalizeState(prev);
+  const t = op?.op;
+  if (t === "set_state") {
+    const st = op.state;
+    if (!st || typeof st !== "object") return cur;
+    return normalizeState(st as BoardState);
+  }
+  if (t === "clear") return { ...DEFAULT_STATE };
+  if (t === "stroke_begin") {
+    if (typeof op.id !== "string") return cur;
+    const color = typeof op.color === "string" ? op.color : "#1E3A8A";
+    const width = typeof op.width === "number" ? op.width : 3;
+    const p = op.p as unknown;
+    if (!p || typeof p !== "object") return cur;
+    const pp = p as { x?: unknown; y?: unknown };
+    if (typeof pp.x !== "number" || typeof pp.y !== "number") return cur;
+    return { ...cur, strokes: [...cur.strokes, { id: op.id, color, width, points: [pp as Point] }] };
+  }
+  if (t === "stroke_point") {
+    if (typeof op.id !== "string") return cur;
+    const p = op.p as unknown;
+    if (!p || typeof p !== "object") return cur;
+    const pp = p as { x?: unknown; y?: unknown };
+    if (typeof pp.x !== "number" || typeof pp.y !== "number") return cur;
+    const strokes = cur.strokes.map((s) =>
+      s.id === op.id ? { ...s, points: [...s.points, pp as Point] } : s
+    );
+    return { ...cur, strokes };
+  }
+  if (t === "text_add") {
+    const it = op.item as unknown;
+    if (!it || typeof it !== "object") return cur;
+    const item = it as Partial<TextItem>;
+    if (
+      typeof item.x !== "number" ||
+      typeof item.y !== "number" ||
+      typeof item.text !== "string" ||
+      typeof item.color !== "string" ||
+      typeof item.size !== "number"
+    )
+      return cur;
+    return { ...cur, texts: [...cur.texts, item as TextItem] };
+  }
+  if (t === "image_add") {
+    const it = op.item as unknown;
+    if (!it || typeof it !== "object") return cur;
+    const item = it as Partial<ImageItem>;
+    if (
+      typeof item.x !== "number" ||
+      typeof item.y !== "number" ||
+      typeof item.w !== "number" ||
+      typeof item.h !== "number" ||
+      typeof item.url !== "string"
+    )
+      return cur;
+    return { ...cur, images: [...cur.images, item as ImageItem] };
+  }
+  if (t === "image_move") {
+    if (typeof op.id !== "string" || typeof op.x !== "number" || typeof op.y !== "number") return cur;
+    const images = cur.images.map((im) => (im.id === op.id ? { ...im, x: op.x as number, y: op.y as number } : im));
+    return { ...cur, images };
+  }
+  if (t === "erase") {
+    const p = op.p as unknown;
+    const r = op.r;
+    if (!p || typeof p !== "object" || typeof r !== "number") return cur;
+    const pp = p as { x?: unknown; y?: unknown };
+    if (typeof pp.x !== "number" || typeof pp.y !== "number") return cur;
+    return applyErase(cur, pp as Point, r);
+  }
+  return cur;
+}
+
 export default function Whiteboard({
   boardId,
   shareToken,
@@ -101,13 +215,22 @@ export default function Whiteboard({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<BoardState>(normalizeState(initialState) || DEFAULT_STATE);
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
   const [tool, setTool] = useState<"move" | "pen" | "erase" | "text" | "image">("pen");
   const [color, setColor] = useState("#1E3A8A");
   const [width, setWidth] = useState(3);
   const [textSize, setTextSize] = useState(24);
   const [status, setStatus] = useState<"offline" | "connecting" | "online">("offline");
   const [cam, setCam] = useState<Camera>({ x: -0.5, y: -0.5, zoom: 1 });
-  const [panelCollapsed, setPanelCollapsed] = useState(true);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  const historyPastRef = useRef<BoardState[]>([]);
+  const historyFutureRef = useRef<BoardState[]>([]);
+  const eraseHistoryPushedRef = useRef(false);
 
   const wsUrl = useMemo(() => api.boards.wsUrl(boardId, shareToken, authToken), [boardId, shareToken, authToken]);
 
@@ -131,6 +254,43 @@ export default function Whiteboard({
     },
     [readonly]
   );
+
+  const syncHistoryFlags = useCallback(() => {
+    setCanUndo(historyPastRef.current.length > 0);
+    setCanRedo(historyFutureRef.current.length > 0);
+  }, []);
+
+  const pushHistory = useCallback(() => {
+    if (readonly) return;
+    historyPastRef.current = [...historyPastRef.current.slice(-(MAX_HISTORY - 1)), cloneState(stateRef.current)];
+    historyFutureRef.current = [];
+    syncHistoryFlags();
+  }, [readonly, syncHistoryFlags]);
+
+  const applyState = useCallback(
+    (next: BoardState, broadcast: boolean) => {
+      const normalized = normalizeState(next);
+      setState(normalized);
+      if (broadcast) sendOp({ op: "set_state", state: normalized });
+    },
+    [sendOp]
+  );
+
+  const undo = useCallback(() => {
+    if (readonly || historyPastRef.current.length === 0) return;
+    const prev = historyPastRef.current.pop()!;
+    historyFutureRef.current.push(cloneState(stateRef.current));
+    applyState(prev, true);
+    syncHistoryFlags();
+  }, [readonly, applyState, syncHistoryFlags]);
+
+  const redo = useCallback(() => {
+    if (readonly || historyFutureRef.current.length === 0) return;
+    const next = historyFutureRef.current.pop()!;
+    historyPastRef.current.push(cloneState(stateRef.current));
+    applyState(next, true);
+    syncHistoryFlags();
+  }, [readonly, applyState, syncHistoryFlags]);
 
   useEffect(() => {
     if (!clientIdRef.current) {
@@ -277,77 +437,14 @@ export default function Whiteboard({
     ws.onclose = () => setStatus("offline");
     ws.onerror = () => setStatus("offline");
 
-    const applyOp = (
-      prev: BoardState,
-      op: {
-        op?: string;
-        id?: unknown;
-        color?: unknown;
-        width?: unknown;
-        p?: unknown;
-        item?: unknown;
-      }
-    ): BoardState => {
-      const cur = normalizeState(prev);
-      const t = op?.op;
-      if (t === "clear") return { ...DEFAULT_STATE };
-      if (t === "stroke_begin") {
-        if (typeof op.id !== "string") return cur;
-        const color = typeof op.color === "string" ? op.color : "#1E3A8A";
-        const width = typeof op.width === "number" ? op.width : 3;
-        const p = op.p as unknown;
-        if (!p || typeof p !== "object") return cur;
-        const pp = p as { x?: unknown; y?: unknown };
-        if (typeof pp.x !== "number" || typeof pp.y !== "number") return cur;
-        return { ...cur, strokes: [...cur.strokes, { id: op.id, color, width, points: [pp as unknown as Point] }] };
-      }
-      if (t === "stroke_point") {
-        if (typeof op.id !== "string") return cur;
-        const p = op.p as unknown;
-        if (!p || typeof p !== "object") return cur;
-        const pp = p as { x?: unknown; y?: unknown };
-        if (typeof pp.x !== "number" || typeof pp.y !== "number") return cur;
-        const strokes = cur.strokes.map((s) =>
-          s.id === op.id ? { ...s, points: [...s.points, pp as unknown as Point] } : s
-        );
-        return { ...cur, strokes };
-      }
-      if (t === "text_add") {
-        const it = op.item as unknown;
-        if (!it || typeof it !== "object") return cur;
-        const item = it as Partial<TextItem>;
-        if (
-          typeof item.x !== "number" ||
-          typeof item.y !== "number" ||
-          typeof item.text !== "string" ||
-          typeof item.color !== "string" ||
-          typeof item.size !== "number"
-        )
-          return cur;
-        return { ...cur, texts: [...cur.texts, item as TextItem] };
-      }
-      if (t === "image_add") {
-        const it = op.item as unknown;
-        if (!it || typeof it !== "object") return cur;
-        const item = it as Partial<ImageItem>;
-        if (
-          typeof item.x !== "number" ||
-          typeof item.y !== "number" ||
-          typeof item.w !== "number" ||
-          typeof item.h !== "number" ||
-          typeof item.url !== "string"
-        )
-          return cur;
-        return { ...cur, images: [...cur.images, item as ImageItem] };
-      }
-      return cur;
-    };
-
     ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data);
         if (msg?.type === "state" && msg.state && typeof msg.state === "object") {
           setState(normalizeState(msg.state));
+          historyPastRef.current = [];
+          historyFutureRef.current = [];
+          syncHistoryFlags();
         } else if (msg?.type === "op" && msg.op) {
           if (msg.op?.op === "cursor") {
             const op = msg.op as {
@@ -386,7 +483,7 @@ export default function Whiteboard({
             }
             return;
           }
-          setState((prev) => applyOp(prev, msg.op));
+          setState((prev) => applyBoardOp(prev, msg.op));
         }
       } catch {
         // ignore
@@ -403,7 +500,7 @@ export default function Whiteboard({
       }
       wsRef.current = null;
     };
-  }, [wsUrl, sendOp]);
+  }, [wsUrl, sendOp, syncHistoryFlags]);
 
   useEffect(() => {
     const t = window.setInterval(() => {
@@ -445,16 +542,18 @@ export default function Whiteboard({
         panRef.current = { active: true, start: pScreen, cam0: cam };
         return;
       }
+      if (tool === "erase") {
+        eraseHistoryPushedRef.current = false;
+      }
       if (tool === "pen") {
+        pushHistory();
         const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
         drawingRef.current.active = true;
         drawingRef.current.id = id;
-        // apply locally
         setState((prev) => ({
           ...normalizeState(prev),
           strokes: [...normalizeState(prev).strokes, { id, color, width, points: [p] }],
         }));
-        // send op
         sendOp({ op: "stroke_begin", id, color, width, p });
       } else if (tool === "text") {
         setTextDraft({ active: true, x: p.x, y: p.y, value: "" });
@@ -468,11 +567,12 @@ export default function Whiteboard({
           .reverse()
           .find((im) => p.x >= im.x && p.x <= im.x + im.w && p.y >= im.y && p.y <= im.y + im.h);
         if (hit) {
+          pushHistory();
           dragImageRef.current = { active: true, id: hit.id, grab: { x: p.x - hit.x, y: p.y - hit.y } };
         }
       }
     },
-    [readonly, tool, color, width, textSize, sendOp, cam, state]
+    [readonly, tool, color, width, sendOp, cam, state, pushHistory]
   );
 
   const onPointerMove = useCallback(
@@ -527,15 +627,13 @@ export default function Whiteboard({
       }
 
       if (tool === "erase") {
-        // erase by radius (world coords)
-        sendOp({ op: "erase", p, r: 0.04 / cam.zoom });
-        setState((prev) => {
-          const cur = normalizeState(prev);
-          const r = 0.04 / cam.zoom;
-          const r2 = r * r;
-          const strokes = cur.strokes.filter((st) => !st.points.some((pt) => (pt.x - p.x) ** 2 + (pt.y - p.y) ** 2 <= r2));
-          return { ...cur, strokes };
-        });
+        if (!eraseHistoryPushedRef.current) {
+          pushHistory();
+          eraseHistoryPushedRef.current = true;
+        }
+        const r = 0.04 / cam.zoom;
+        sendOp({ op: "erase", p, r });
+        setState((prev) => applyErase(normalizeState(prev), p, r));
         return;
       }
 
@@ -549,7 +647,7 @@ export default function Whiteboard({
       });
       scheduleStrokePoint(id, p);
     },
-    [readonly, tool, scheduleStrokePoint, sendOp, cam]
+    [readonly, tool, scheduleStrokePoint, sendOp, cam, pushHistory]
   );
 
   const onPointerUp = useCallback(
@@ -560,6 +658,7 @@ export default function Whiteboard({
       drawingRef.current.id = null;
       panRef.current.active = false;
       dragImageRef.current.active = false;
+      eraseHistoryPushedRef.current = false;
     },
     []
   );
@@ -588,6 +687,7 @@ export default function Whiteboard({
       const y = cam.y + (0.5 / cam.zoom) - h / 2;
       const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
+      pushHistory();
       setState((prev) => {
         const cur = normalizeState(prev);
         const item = { id, x, y, w, h, url };
@@ -595,8 +695,42 @@ export default function Whiteboard({
       });
       sendOp({ op: "image_add", item: { id, x, y, w, h, url } });
     },
-    [boardId, shareToken, sendOp, cam]
+    [boardId, shareToken, sendOp, cam, pushHistory]
   );
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName?.toLowerCase();
+        if (tag === "input" || tag === "textarea" || target.isContentEditable) return;
+      }
+      const key = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && (key === "y" || (key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (readonly) return;
+      if (key === "p") {
+        e.preventDefault();
+        setTool("pen");
+      } else if (key === "e") {
+        e.preventDefault();
+        setTool("erase");
+      } else if (key === "m") {
+        e.preventDefault();
+        setTool("move");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [readonly, undo, redo]);
 
   // Global paste support (Ctrl+V) without switching tools.
   useEffect(() => {
@@ -625,23 +759,36 @@ export default function Whiteboard({
     <div className={fullscreen ? "w-full h-full" : "space-y-3"}>
       <div
         ref={wrapRef}
-        className={fullscreen ? "w-full h-full bg-white overflow-hidden relative" : "rounded-2xl border bg-white overflow-hidden relative"}
+        className={
+          fullscreen
+            ? "w-full h-full bg-white overflow-hidden relative pt-14"
+            : "rounded-2xl border bg-white overflow-hidden relative pt-14"
+        }
         tabIndex={0}
         onWheel={(e) => {
-          // zoom with wheel (as in Miro). Pan is Shift+drag or Move tool.
           e.preventDefault();
           const canvas = canvasRef.current;
           if (!canvas) return;
-          const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
-          const before = screenToWorld(pScreen, cam);
-          const nextZoom = clamp(cam.zoom * (e.deltaY > 0 ? 0.9 : 1.1), 0.25, 6);
-          const after = screenToWorld(pScreen, { ...cam, zoom: nextZoom });
-          setCam({
-            ...cam,
-            zoom: nextZoom,
-            x: cam.x + (before.x - after.x),
-            y: cam.y + (before.y - after.y),
-          });
+          const rect = canvas.getBoundingClientRect();
+          if (e.ctrlKey || e.metaKey) {
+            const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
+            const before = screenToWorld(pScreen, cam);
+            const nextZoom = clamp(cam.zoom * (e.deltaY > 0 ? 0.9 : 1.1), 0.25, 6);
+            const after = screenToWorld(pScreen, { ...cam, zoom: nextZoom });
+            setCam({
+              ...cam,
+              zoom: nextZoom,
+              x: cam.x + (before.x - after.x),
+              y: cam.y + (before.y - after.y),
+            });
+          } else {
+            const scale = 1 / cam.zoom;
+            setCam({
+              ...cam,
+              x: cam.x + ((e.deltaX || 0) / rect.width) * scale,
+              y: cam.y + ((e.deltaY || 0) / rect.height) * scale,
+            });
+          }
         }}
         onPaste={(e) => {
           wrapRef.current?.focus();
@@ -674,6 +821,7 @@ export default function Whiteboard({
               if (e.key === "Enter") {
                 const v = textDraft.value.trim();
                 if (v) {
+                  pushHistory();
                   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
                   const item = { id, x: textDraft.x, y: textDraft.y, text: v, color, size: textSize };
                   setState((prev) => ({ ...normalizeState(prev), texts: [...normalizeState(prev).texts, item] }));
@@ -737,152 +885,152 @@ export default function Whiteboard({
           ))}
         </div>
 
-        {/* Right tools panel */}
-        <div className="absolute top-3 right-3 z-20 pointer-events-auto">
-          <div className={`bg-white/95 backdrop-blur border border-slate-200 shadow-lg rounded-2xl overflow-hidden ${panelCollapsed ? "w-12" : "w-72"}`}>
-            <div className="p-2 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className={`w-2.5 h-2.5 rounded-full ${status === "online" ? "bg-emerald-500" : status === "connecting" ? "bg-amber-400" : "bg-slate-300"}`} />
-                {!panelCollapsed && <span className="text-xs text-slate-600">{status === "online" ? "Онлайн" : status === "connecting" ? "Подключение…" : "Оффлайн"}</span>}
-              </div>
+        {/* Top horizontal toolbar */}
+        <div className="absolute top-3 left-3 right-3 z-20 pointer-events-auto flex justify-center">
+          <div className="flex flex-wrap items-center gap-1.5 px-2 py-2 bg-white/95 backdrop-blur border border-slate-200 shadow-lg rounded-2xl max-w-full">
+            <div
+              className={`w-2.5 h-2.5 rounded-full shrink-0 ${status === "online" ? "bg-emerald-500" : status === "connecting" ? "bg-amber-400" : "bg-slate-300"}`}
+              title={status === "online" ? "Онлайн" : status === "connecting" ? "Подключение…" : "Оффлайн"}
+            />
+            <div className="w-px h-7 bg-slate-200 shrink-0" />
+            <button
+              className={`p-2 rounded-xl border ${tool === "move" ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"}`}
+              onClick={() => setTool("move")}
+              disabled={readonly}
+              title="Перемещение (M, Shift+ЛКМ)"
+            >
+              <CursorArrowRaysIcon className="w-5 h-5" />
+            </button>
+            <button
+              className={`p-2 rounded-xl border ${tool === "pen" ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"}`}
+              onClick={() => setTool("pen")}
+              disabled={readonly}
+              title="Ручка (P)"
+            >
+              <PencilIcon className="w-5 h-5" />
+            </button>
+            <button
+              className={`p-2 rounded-xl border ${tool === "erase" ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"}`}
+              onClick={() => setTool("erase")}
+              disabled={readonly}
+              title="Ластик (E) — штрихи, текст, картинки"
+            >
+              <TrashIcon className="w-5 h-5" />
+            </button>
+            <button
+              className={`p-2 rounded-xl border ${tool === "text" ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"}`}
+              onClick={() => setTool("text")}
+              disabled={readonly}
+              title="Текст"
+            >
+              <span className="w-5 h-5 flex items-center justify-center text-base font-bold">T</span>
+            </button>
+            <button
+              className={`p-2 rounded-xl border ${tool === "image" ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"}`}
+              onClick={() => setTool("image")}
+              disabled={readonly}
+              title="Картинки (перемещение)"
+            >
+              <PhotoIcon className="w-5 h-5" />
+            </button>
+            <div className="w-px h-7 bg-slate-200 shrink-0 hidden sm:block" />
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="w-9 h-9 p-0.5 border rounded-lg shrink-0 hidden sm:block"
+              disabled={readonly}
+              title="Цвет"
+            />
+            <input
+              type="range"
+              min={1}
+              max={14}
+              value={width}
+              onChange={(e) => setWidth(Number(e.target.value))}
+              disabled={readonly}
+              className="w-16 sm:w-20 shrink-0 hidden sm:block"
+              title="Толщина линии"
+            />
+            <input
+              type="range"
+              min={12}
+              max={72}
+              value={textSize}
+              onChange={(e) => setTextSize(Number(e.target.value))}
+              disabled={readonly}
+              className="w-16 sm:w-20 shrink-0 hidden md:block"
+              title="Размер текста"
+            />
+            <div className="w-px h-7 bg-slate-200 shrink-0" />
+            <button
+              className="p-2 rounded-xl border bg-white hover:bg-slate-50 disabled:opacity-40"
+              onClick={undo}
+              disabled={!canUndo}
+              title="Отменить (Ctrl+Z)"
+            >
+              <ArrowUturnLeftIcon className="w-5 h-5" />
+            </button>
+            <button
+              className="p-2 rounded-xl border bg-white hover:bg-slate-50 disabled:opacity-40"
+              onClick={redo}
+              disabled={!canRedo}
+              title="Повторить (Ctrl+Y)"
+            >
+              <ArrowUturnRightIcon className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-0.5 shrink-0">
               <button
-                className="p-1.5 rounded-lg hover:bg-slate-100"
-                onClick={() => setPanelCollapsed((v) => !v)}
-                title={panelCollapsed ? "Развернуть" : "Свернуть"}
+                className="p-1.5 rounded-lg border hover:bg-slate-50"
+                onClick={() => setCam((c) => ({ ...c, zoom: clamp(c.zoom / 1.1, 0.25, 6) }))}
+                title="Отдалить"
               >
-                {panelCollapsed ? <ArrowsPointingOutIcon className="w-5 h-5 text-slate-600" /> : <XMarkIcon className="w-5 h-5 text-slate-600" />}
+                <MinusIcon className="w-4 h-4" />
+              </button>
+              <span className="text-xs w-10 text-center tabular-nums">{Math.round(cam.zoom * 100)}%</span>
+              <button
+                className="p-1.5 rounded-lg border hover:bg-slate-50"
+                onClick={() => setCam((c) => ({ ...c, zoom: clamp(c.zoom * 1.1, 0.25, 6) }))}
+                title="Приблизить"
+              >
+                <PlusIcon className="w-4 h-4" />
               </button>
             </div>
-
-            <div className="p-2 pt-0 space-y-2">
-              <div className="grid grid-cols-1 gap-2">
-                <button
-                  className={`flex items-center gap-2 px-2 py-2 rounded-xl border ${tool === "move" ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}
-                  onClick={() => setTool("move")}
-                  disabled={readonly}
-                  title="Перемещение (или Shift)"
+            {!readonly && (
+              <>
+                <label
+                  className="p-2 rounded-xl border bg-white cursor-pointer hover:bg-slate-50 shrink-0"
+                  title="Загрузить картинку"
                 >
-                  <CursorArrowRaysIcon className="w-5 h-5" />
-                  {!panelCollapsed && <span className="text-sm">Перемещение</span>}
-                </button>
+                  <ArrowDownTrayIcon className="w-5 h-5" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) onUploadImage(f).catch(() => alert("Не удалось загрузить картинку"));
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                </label>
                 <button
-                  className={`flex items-center gap-2 px-2 py-2 rounded-xl border ${tool === "pen" ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}
-                  onClick={() => setTool("pen")}
-                  disabled={readonly}
-                  title="Рисование"
+                  className="px-2.5 py-2 rounded-xl border bg-white text-xs hover:bg-red-50 hover:text-red-600 shrink-0"
+                  onClick={() => {
+                    if (!confirm("Очистить доску?")) return;
+                    pushHistory();
+                    setState({ ...DEFAULT_STATE });
+                    sendOp({ op: "clear" });
+                  }}
+                  title="Очистить всю доску"
                 >
-                  <PencilIcon className="w-5 h-5" />
-                  {!panelCollapsed && <span className="text-sm">Рисование</span>}
+                  Очистить
                 </button>
-                <button
-                  className={`flex items-center gap-2 px-2 py-2 rounded-xl border ${tool === "erase" ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}
-                  onClick={() => setTool("erase")}
-                  disabled={readonly}
-                  title="Стирание"
-                >
-                  <TrashIcon className="w-5 h-5" />
-                  {!panelCollapsed && <span className="text-sm">Стереть</span>}
-                </button>
-                <button
-                  className={`flex items-center gap-2 px-2 py-2 rounded-xl border ${tool === "text" ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}
-                  onClick={() => setTool("text")}
-                  disabled={readonly}
-                  title="Текст"
-                >
-                  <span className="w-5 h-5 flex items-center justify-center text-base font-bold">T</span>
-                  {!panelCollapsed && <span className="text-sm">Текст</span>}
-                </button>
-                <button
-                  className={`flex items-center gap-2 px-2 py-2 rounded-xl border ${tool === "image" ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}
-                  onClick={() => setTool("image")}
-                  disabled={readonly}
-                  title="Картинка (перемещение)"
-                >
-                  <PhotoIcon className="w-5 h-5" />
-                  {!panelCollapsed && <span className="text-sm">Картинки</span>}
-                </button>
-              </div>
-
-              {!panelCollapsed && (
-                <div className="space-y-2 pt-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-500">Цвет</span>
-                    <input
-                      type="color"
-                      value={color}
-                      onChange={(e) => setColor(e.target.value)}
-                      className="w-10 h-8 p-1 border rounded-lg"
-                      disabled={readonly}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-500">Толщина</span>
-                    <input
-                      type="range"
-                      min={1}
-                      max={14}
-                      value={width}
-                      onChange={(e) => setWidth(Number(e.target.value))}
-                      disabled={readonly}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-500">Текст</span>
-                    <input
-                      type="range"
-                      min={12}
-                      max={72}
-                      value={textSize}
-                      onChange={(e) => setTextSize(Number(e.target.value))}
-                      disabled={readonly}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-500">Зум</span>
-                    <div className="flex items-center gap-1">
-                      <button className="p-1.5 rounded-lg border hover:bg-slate-50" onClick={() => setCam((c) => ({ ...c, zoom: clamp(c.zoom / 1.1, 0.25, 6) }))} title="Отдалить">
-                        <MinusIcon className="w-4 h-4" />
-                      </button>
-                      <span className="text-xs w-12 text-center">{Math.round(cam.zoom * 100)}%</span>
-                      <button className="p-1.5 rounded-lg border hover:bg-slate-50" onClick={() => setCam((c) => ({ ...c, zoom: clamp(c.zoom * 1.1, 0.25, 6) }))} title="Приблизить">
-                        <PlusIcon className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  {!readonly && (
-                    <div className="flex items-center gap-2 pt-1">
-                      <label className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border bg-white cursor-pointer text-sm hover:bg-slate-50">
-                        <ArrowDownTrayIcon className="w-5 h-5" />
-                        Загрузить
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) onUploadImage(f).catch(() => alert("Не удалось загрузить картинку"));
-                            e.currentTarget.value = "";
-                          }}
-                        />
-                      </label>
-                      <button
-                        className="px-3 py-2 rounded-xl border bg-white text-sm hover:bg-red-50 hover:text-red-600"
-                        onClick={() => {
-                          if (!confirm("Очистить доску?")) return;
-                          setState({ ...DEFAULT_STATE });
-                          sendOp({ op: "clear" });
-                        }}
-                      >
-                        Очистить
-                      </button>
-                    </div>
-                  )}
-                  <p className="text-[11px] text-slate-500 leading-snug">
-                    Пан: <b>Shift+ЛКМ</b> или <b>колесо</b>. Зум: <b>Ctrl+колесо</b>. Вставка картинки: <b>Ctrl+V</b>.
-                  </p>
-                </div>
-              )}
-            </div>
+              </>
+            )}
+            <p className="hidden lg:block text-[10px] text-slate-500 leading-tight max-w-[220px] ml-1">
+              P ручка · E ластик · M движение · колесо — пан · Ctrl+колесо — зум · Ctrl+Z отмена
+            </p>
           </div>
         </div>
       </div>

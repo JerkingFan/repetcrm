@@ -209,11 +209,57 @@ def _load_state(b: Board) -> dict:
     }
 
 
+def _text_hit(t: dict, px: float, py: float, r: float) -> bool:
+    if not isinstance(t, dict):
+        return False
+    x = t.get("x")
+    y = t.get("y")
+    text = t.get("text")
+    size = t.get("size")
+    if not all(isinstance(v, (int, float)) for v in (x, y, size)) or not isinstance(text, str):
+        return False
+    w = max(len(text), 1) * float(size) * 0.55
+    h = float(size) * 1.25
+    return (
+        float(px) >= float(x) - r
+        and float(px) <= float(x) + w + r
+        and float(py) >= float(y) - r
+        and float(py) <= float(y) + h + r
+    )
+
+
+def _image_hit(im: dict, px: float, py: float, r: float) -> bool:
+    if not isinstance(im, dict):
+        return False
+    x = im.get("x")
+    y = im.get("y")
+    w = im.get("w")
+    h = im.get("h")
+    if not all(isinstance(v, (int, float)) for v in (x, y, w, h)):
+        return False
+    return (
+        float(px) >= float(x) - r
+        and float(px) <= float(x) + float(w) + r
+        and float(py) >= float(y) - r
+        and float(py) <= float(y) + float(h) + r
+    )
+
+
 def _apply_op(state: dict, op: dict) -> dict:
     t = op.get("op")
     # presence ops are ephemeral; caller should not persist them
     if t in ("cursor", "cursor_leave"):
         return state
+    if t == "set_state":
+        new_state = op.get("state")
+        if not isinstance(new_state, dict):
+            return state
+        return {
+            "version": 1,
+            "strokes": new_state.get("strokes") if isinstance(new_state.get("strokes"), list) else [],
+            "texts": new_state.get("texts") if isinstance(new_state.get("texts"), list) else [],
+            "images": new_state.get("images") if isinstance(new_state.get("images"), list) else [],
+        }
     if t == "clear":
         return {"version": 1, "strokes": [], "texts": [], "images": []}
 
@@ -297,6 +343,16 @@ def _apply_op(state: dict, op: dict) -> dict:
             if not hit:
                 strokes.append(st)
         state["strokes"] = strokes
+        texts = []
+        for titem in state.get("texts", []):
+            if not _text_hit(titem, float(px), float(py), float(r)):
+                texts.append(titem)
+        state["texts"] = texts
+        images = []
+        for im in state.get("images", []):
+            if not _image_hit(im, float(px), float(py), float(r)):
+                images.append(im)
+        state["images"] = images
         return state
 
     return state
