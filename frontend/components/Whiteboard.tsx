@@ -159,25 +159,29 @@ function applyErase(cur: BoardState, p: Point, r: number): BoardState {
 
 const MAX_HISTORY = 50;
 
-function applyBoardOp(
-  prev: BoardState,
-  op: {
-    op?: string;
-    id?: unknown;
-    color?: unknown;
-    width?: unknown;
-    p?: unknown;
-    r?: unknown;
-    item?: unknown;
-    x?: unknown;
-    y?: unknown;
-    w?: unknown;
-    h?: unknown;
-    state?: unknown;
+function opNum(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
   }
-): BoardState {
+  return null;
+}
+
+function opPoint(v: unknown): Point | null {
+  if (!v || typeof v !== "object") return null;
+  const p = v as { x?: unknown; y?: unknown };
+  const x = opNum(p.x);
+  const y = opNum(p.y);
+  if (x === null || y === null) return null;
+  return { x, y };
+}
+
+/** Все операции коллаборации: stroke_*, text_add, image_add, image_move, image_update, erase, clear, set_state */
+function applyBoardOp(prev: BoardState, op: Record<string, unknown>): BoardState {
   const cur = normalizeState(prev);
-  const t = op?.op;
+  const t = op.op;
+  if (typeof t !== "string") return cur;
   if (t === "set_state") {
     const st = op.state;
     if (!st || typeof st !== "object") return cur;
@@ -187,22 +191,16 @@ function applyBoardOp(
   if (t === "stroke_begin") {
     if (typeof op.id !== "string") return cur;
     const color = typeof op.color === "string" ? op.color : "#1E3A8A";
-    const width = typeof op.width === "number" ? op.width : 3;
-    const p = op.p as unknown;
-    if (!p || typeof p !== "object") return cur;
-    const pp = p as { x?: unknown; y?: unknown };
-    if (typeof pp.x !== "number" || typeof pp.y !== "number") return cur;
-    return { ...cur, strokes: [...cur.strokes, { id: op.id, color, width, points: [pp as Point] }] };
+    const width = opNum(op.width) ?? 3;
+    const p = opPoint(op.p);
+    if (!p) return cur;
+    return { ...cur, strokes: [...cur.strokes, { id: op.id, color, width, points: [p] }] };
   }
   if (t === "stroke_point") {
     if (typeof op.id !== "string") return cur;
-    const p = op.p as unknown;
-    if (!p || typeof p !== "object") return cur;
-    const pp = p as { x?: unknown; y?: unknown };
-    if (typeof pp.x !== "number" || typeof pp.y !== "number") return cur;
-    const strokes = cur.strokes.map((s) =>
-      s.id === op.id ? { ...s, points: [...s.points, pp as Point] } : s
-    );
+    const p = opPoint(op.p);
+    if (!p) return cur;
+    const strokes = cur.strokes.map((s) => (s.id === op.id ? { ...s, points: [...s.points, p] } : s));
     return { ...cur, strokes };
   }
   if (t === "text_add") {
@@ -236,39 +234,30 @@ function applyBoardOp(
     return { ...cur, images: [...cur.images, item as ImageItem] };
   }
   if (t === "image_move") {
-    if (typeof op.id !== "string" || typeof op.x !== "number" || typeof op.y !== "number") return cur;
-    const images = cur.images.map((im) => (im.id === op.id ? { ...im, x: op.x as number, y: op.y as number } : im));
+    const id = op.id;
+    const x = opNum(op.x);
+    const y = opNum(op.y);
+    if (typeof id !== "string" || x === null || y === null) return cur;
+    const images = cur.images.map((im) => (im.id === id ? { ...im, x, y } : im));
     return { ...cur, images };
   }
   if (t === "image_update") {
-    if (
-      typeof op.id !== "string" ||
-      typeof op.x !== "number" ||
-      typeof op.y !== "number" ||
-      typeof op.w !== "number" ||
-      typeof op.h !== "number"
-    )
-      return cur;
+    const id = op.id;
+    const x = opNum(op.x);
+    const y = opNum(op.y);
+    const w = opNum(op.w);
+    const h = opNum(op.h);
+    if (typeof id !== "string" || x === null || y === null || w === null || h === null) return cur;
     const images = cur.images.map((im) =>
-      im.id === op.id
-        ? {
-            ...im,
-            x: op.x as number,
-            y: op.y as number,
-            w: Math.max(MIN_IMAGE_SIZE, op.w as number),
-            h: Math.max(MIN_IMAGE_SIZE, op.h as number),
-          }
-        : im
+      im.id === id ? { ...im, x, y, w: Math.max(MIN_IMAGE_SIZE, w), h: Math.max(MIN_IMAGE_SIZE, h) } : im
     );
     return { ...cur, images };
   }
   if (t === "erase") {
-    const p = op.p as unknown;
-    const r = op.r;
-    if (!p || typeof p !== "object" || typeof r !== "number") return cur;
-    const pp = p as { x?: unknown; y?: unknown };
-    if (typeof pp.x !== "number" || typeof pp.y !== "number") return cur;
-    return applyErase(cur, pp as Point, r);
+    const p = opPoint(op.p);
+    const r = opNum(op.r);
+    if (!p || r === null) return cur;
+    return applyErase(cur, p, r);
   }
   return cur;
 }
@@ -300,6 +289,7 @@ export default function Whiteboard({
   const [width, setWidth] = useState(3);
   const [textSize, setTextSize] = useState(24);
   const [status, setStatus] = useState<"offline" | "connecting" | "online">("offline");
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [cam, setCam] = useState<Camera>({ x: -0.5, y: -0.5, zoom: 1 });
   const camRef = useRef(cam);
   useEffect(() => {
@@ -510,80 +500,139 @@ export default function Whiteboard({
     redraw(state);
   }, [state, redraw]);
 
+  const syncHistoryFlagsRef = useRef(syncHistoryFlags);
+  syncHistoryFlagsRef.current = syncHistoryFlags;
+
+  const handleWsMessage = useCallback((ev: MessageEvent) => {
+    try {
+      const msg = JSON.parse(ev.data as string);
+      if (msg?.type === "state" && msg.state && typeof msg.state === "object") {
+        setState(normalizeState(msg.state as BoardState));
+        historyPastRef.current = [];
+        historyFutureRef.current = [];
+        syncHistoryFlagsRef.current();
+        return;
+      }
+      if (msg?.type !== "op" || !msg.op || typeof msg.op !== "object") return;
+
+      const op = msg.op as Record<string, unknown>;
+      const opType = op.op;
+
+      if (opType === "cursor") {
+        if (
+          typeof op.id === "string" &&
+          typeof op.x === "number" &&
+          typeof op.y === "number" &&
+          typeof op.color === "string" &&
+          typeof op.label === "string" &&
+          op.id !== clientIdRef.current
+        ) {
+          const id = op.id;
+          setCursors((prev) => ({
+            ...prev,
+            [id]: {
+              id,
+              x: op.x as number,
+              y: op.y as number,
+              color: op.color as string,
+              label: op.label as string,
+              ts: Date.now(),
+            },
+          }));
+        }
+        return;
+      }
+      if (opType === "cursor_leave") {
+        const id = op.id;
+        if (typeof id === "string") {
+          setCursors((prev) => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          });
+        }
+        return;
+      }
+
+      setState((prev) => applyBoardOp(prev, op));
+    } catch {
+      // ignore malformed messages
+    }
+  }, []);
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setStatus("connecting");
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let socket: WebSocket | null = null;
+    let attempt = 0;
 
-    ws.onopen = () => setStatus("online");
-    ws.onclose = () => setStatus("offline");
-    ws.onerror = () => setStatus("offline");
+    const clearReconnectTimer = () => {
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
 
-    ws.onmessage = (ev) => {
+    const scheduleReconnect = () => {
+      if (cancelled) return;
+      clearReconnectTimer();
+      const delay = Math.min(30_000, Math.round(1000 * 2 ** Math.min(attempt, 6) * (0.85 + Math.random() * 0.3)));
+      attempt += 1;
+      setReconnectAttempt(attempt);
+      setStatus("offline");
+      reconnectTimer = setTimeout(connect, delay);
+    };
+
+    const connect = () => {
+      if (cancelled) return;
+      clearReconnectTimer();
+      setStatus("connecting");
+
+      socket = new WebSocket(wsUrl);
+      wsRef.current = socket;
+
+      socket.onopen = () => {
+        if (cancelled || socket !== wsRef.current) return;
+        attempt = 0;
+        setReconnectAttempt(0);
+        setStatus("online");
+      };
+
+      socket.onmessage = handleWsMessage;
+
+      socket.onerror = () => {
+        if (!cancelled) setStatus("offline");
+      };
+
+      socket.onclose = () => {
+        if (wsRef.current === socket) wsRef.current = null;
+        if (cancelled) return;
+        scheduleReconnect();
+      };
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      clearReconnectTimer();
+      const clientId = clientIdRef.current;
+      const s = socket;
       try {
-        const msg = JSON.parse(ev.data);
-        if (msg?.type === "state" && msg.state && typeof msg.state === "object") {
-          setState(normalizeState(msg.state));
-          historyPastRef.current = [];
-          historyFutureRef.current = [];
-          syncHistoryFlags();
-        } else if (msg?.type === "op" && msg.op) {
-          if (msg.op?.op === "cursor") {
-            const op = msg.op as {
-              op?: string;
-              id?: unknown;
-              x?: unknown;
-              y?: unknown;
-              color?: unknown;
-              label?: unknown;
-            };
-            if (
-              typeof op.id === "string" &&
-              typeof op.x === "number" &&
-              typeof op.y === "number" &&
-              typeof op.color === "string" &&
-              typeof op.label === "string"
-            ) {
-              const id = op.id;
-              if (id !== clientIdRef.current) {
-                setCursors((prev) => ({
-                  ...prev,
-                  [id]: { id, x: op.x, y: op.y, color: op.color, label: op.label, ts: Date.now() } as CursorPresence,
-                }));
-              }
-            }
-            return;
-          }
-          if (msg.op?.op === "cursor_leave") {
-            const id = msg.op?.id;
-            if (typeof id === "string") {
-              setCursors((prev) => {
-                const next = { ...prev };
-                delete next[id];
-                return next;
-              });
-            }
-            return;
-          }
-          setState((prev) => applyBoardOp(prev, msg.op));
+        if (s?.readyState === WebSocket.OPEN) {
+          s.send(JSON.stringify({ type: "op", op: { op: "cursor_leave", id: clientId } }));
         }
       } catch {
         // ignore
       }
-    };
-
-    const clientId = clientIdRef.current;
-    return () => {
       try {
-        sendOp({ op: "cursor_leave", id: clientId });
-        ws.close();
+        s?.close();
       } catch {
         // ignore
       }
-      wsRef.current = null;
+      if (wsRef.current === socket) wsRef.current = null;
     };
-  }, [wsUrl, sendOp, syncHistoryFlags]);
+  }, [wsUrl, handleWsMessage]);
 
   useEffect(() => {
     const t = window.setInterval(() => {
@@ -1185,7 +1234,17 @@ export default function Whiteboard({
           <div className="flex flex-wrap items-center gap-1.5 px-2 py-2 bg-white/95 backdrop-blur border border-slate-200 shadow-lg rounded-2xl max-w-full">
             <div
               className={`w-2.5 h-2.5 rounded-full shrink-0 ${status === "online" ? "bg-emerald-500" : status === "connecting" ? "bg-amber-400" : "bg-slate-300"}`}
-              title={status === "online" ? "Онлайн" : status === "connecting" ? "Подключение…" : "Оффлайн"}
+              title={
+                status === "online"
+                  ? "Онлайн"
+                  : status === "connecting"
+                    ? reconnectAttempt > 0
+                      ? `Переподключение… (попытка ${reconnectAttempt})`
+                      : "Подключение…"
+                    : reconnectAttempt > 0
+                      ? `Оффлайн, переподключение через несколько сек…`
+                      : "Оффлайн"
+              }
             />
             <div className="w-px h-7 bg-slate-200 shrink-0" />
             <button

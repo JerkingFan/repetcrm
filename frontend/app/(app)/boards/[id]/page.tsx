@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import LoadingSpinner from "@/components/LoadingSpinner";
@@ -17,6 +17,7 @@ type Board = {
 
 export default function BoardPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const search = useSearchParams();
   const id = Number(params.id);
   const authToken = getToken() || undefined;
@@ -27,12 +28,23 @@ export default function BoardPage() {
 
   useEffect(() => {
     const token = getToken();
-    if (!token) return;
+    if (!token) {
+      router.replace(`/login?next=${encodeURIComponent(`/boards/${id}`)}`);
+      return;
+    }
+    let cancelled = false;
     api.boards
       .get(token, id)
-      .then((b) => setBoard(b as Board))
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Не удалось загрузить доску"));
-  }, [id]);
+      .then((b) => {
+        if (!cancelled) setBoard(b as Board);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof ApiError ? e.message : "Не удалось загрузить доску");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, router]);
 
   const shareUrl = useMemo(() => {
     if (!board || typeof window === "undefined") return "";
@@ -41,6 +53,10 @@ export default function BoardPage() {
     u.searchParams.set("token", board.share_token);
     return u.toString();
   }, [board]);
+
+  if (!getToken() && !board && !error) {
+    return <LoadingSpinner label="Перенаправление на вход…" />;
+  }
 
   if (!board && !error) return <LoadingSpinner label="Загрузка доски..." />;
 
