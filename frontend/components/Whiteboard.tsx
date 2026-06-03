@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api } from "@/lib/api";
+import { getBoardImage, pruneImageCache, resolveBoardImageUrl } from "@/lib/boardImageCache";
+import { simplifyStroke } from "@/lib/strokeSimplify";
 import {
   ArrowDownTrayIcon,
   ArrowUturnLeftIcon,
@@ -203,6 +205,17 @@ function applyBoardOp(prev: BoardState, op: Record<string, unknown>): BoardState
     const strokes = cur.strokes.map((s) => (s.id === op.id ? { ...s, points: [...s.points, p] } : s));
     return { ...cur, strokes };
   }
+  if (t === "stroke_simplify") {
+    if (typeof op.id !== "string") return cur;
+    const points = op.points;
+    if (!Array.isArray(points)) return cur;
+    const simplified = points
+      .map((pt) => opPoint(pt))
+      .filter((p): p is Point => p !== null);
+    if (simplified.length < 2) return cur;
+    const strokes = cur.strokes.map((s) => (s.id === op.id ? { ...s, points: simplified } : s));
+    return { ...cur, strokes };
+  }
   if (t === "text_add") {
     const it = op.item as unknown;
     if (!it || typeof it !== "object") return cur;
@@ -279,6 +292,9 @@ export default function Whiteboard({
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const imageCacheRef = useRef(new Map<string, { img: HTMLImageElement; status: "loading" | "ready" | "error" }>());
+  const [imageCacheTick, setImageCacheTick] = useState(0);
+  const bumpImageCache = useCallback(() => setImageCacheTick((n) => n + 1), []);
   const [state, setState] = useState<BoardState>(normalizeState(initialState) || DEFAULT_STATE);
   const stateRef = useRef(state);
   useEffect(() => {
@@ -391,13 +407,12 @@ export default function Whiteboard({
   );
 
   const redraw = useCallback(
-    async (s: BoardState) => {
+    (s: BoardState) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      // HiDPI
       const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
       const w = Math.max(1, Math.floor(rect.width * dpr));
@@ -414,8 +429,7 @@ export default function Whiteboard({
       ctx.translate(-cam.x * cam.zoom, -cam.y * cam.zoom);
       ctx.scale(cam.zoom, cam.zoom);
 
-      // grid (world units)
-      const step = 0.1; // 10% of viewport in world coords
+      const step = 0.1;
       const viewW = 1 / cam.zoom;
       const viewH = 1 / cam.zoom;
       const x0 = cam.x;
@@ -437,35 +451,24 @@ export default function Whiteboard({
       }
       ctx.stroke();
 
-      // images
-      for (const img of s.images) {
-        try {
-          const image = new Image();
-          image.crossOrigin = "anonymous";
-          const url = img.url.startsWith("/api/")
-            ? `${window.location.origin}${img.url}`
-            : img.url.startsWith("/")
-              ? `${window.location.origin}${img.url}`
-              : img.url;
-          await new Promise<void>((resolve, reject) => {
-            image.onload = () => resolve();
-            image.onerror = () => reject(new Error("image load failed"));
-            image.src = url;
-          });
-          ctx.drawImage(image, img.x, img.y, img.w, img.h);
-        } catch {
-          // ignore
+      const usedUrls = new Set<string>();
+      for (const im of s.images) {
+        if (!im.url) continue;
+        const key = resolveBoardImageUrl(im.url);
+        usedUrls.add(key);
+        const cached = getBoardImage(imageCacheRef.current, im.url, bumpImageCache);
+        if (cached) {
+          ctx.drawImage(cached, im.x, im.y, im.w, im.h);
         }
       }
+      pruneImageCache(imageCacheRef.current, usedUrls);
 
-      // strokes
       for (const st of s.strokes) {
         if (!st.points.length) continue;
         ctx.strokeStyle = st.color;
         ctx.lineWidth = (st.width / w) / cam.zoom;
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
-        // smooth stroke with quadratic curves through midpoints
         const pts = st.points;
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
@@ -483,7 +486,6 @@ export default function Whiteboard({
         ctx.stroke();
       }
 
-      // texts
       for (const t of s.texts) {
         ctx.fillStyle = t.color;
         ctx.font = `${(t.size / w) / cam.zoom}px Inter, system-ui, sans-serif`;
@@ -493,12 +495,12 @@ export default function Whiteboard({
 
       ctx.restore();
     },
-    [cam]
+    [cam, bumpImageCache]
   );
 
   useEffect(() => {
     redraw(state);
-  }, [state, redraw]);
+  }, [state, redraw, imageCacheTick]);
 
   const syncHistoryFlagsRef = useRef(syncHistoryFlags);
   syncHistoryFlagsRef.current = syncHistoryFlags;
@@ -863,17 +865,36 @@ export default function Whiteboard({
     [readonly, tool, scheduleStrokePoint, sendOp, cam, pushHistory, updateImageInState, eraseAt]
   );
 
+  const finishStroke = useCallback(
+    (strokeId: string) => {
+      const stroke = stateRef.current.strokes.find((s) => s.id === strokeId);
+      if (!stroke || stroke.points.length < 4) return;
+      const epsilon = 0.002 / camRef.current.zoom;
+      const simplified = simplifyStroke(stroke.points, epsilon);
+      if (simplified.length >= stroke.points.length) return;
+      setState((prev) => {
+        const cur = normalizeState(prev);
+        const strokes = cur.strokes.map((s) => (s.id === strokeId ? { ...s, points: simplified } : s));
+        return { ...cur, strokes };
+      });
+      sendOp({ op: "stroke_simplify", id: strokeId, points: simplified });
+    },
+    [sendOp]
+  );
+
   const onPointerUp = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       const canvas = canvasRef.current;
       if (canvas) canvas.releasePointerCapture(e.pointerId);
+      const strokeId = drawingRef.current.id;
       drawingRef.current.active = false;
       drawingRef.current.id = null;
       panRef.current.active = false;
       finishImageEdit();
       stopErasing();
+      if (strokeId) finishStroke(strokeId);
     },
-    [finishImageEdit, stopErasing]
+    [finishImageEdit, stopErasing, finishStroke]
   );
 
   const handleImageResizeStart = useCallback(

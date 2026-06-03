@@ -1,8 +1,13 @@
+import asyncio
+import copy
 import json
+import math
 import os
 import secrets
 from datetime import datetime
 from typing import Any
+
+PERSIST_DEBOUNCE_SEC = 1.5
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -111,8 +116,13 @@ def update_board(board_id: int, payload: dict[str, Any], user: User = Depends(ge
     if isinstance(payload.get("title"), str):
         b.title = payload["title"].strip() or b.title
     if payload.get("state_json") is not None:
-        # state_json is stored as JSON string
-        b.state_json = json.dumps(payload["state_json"], ensure_ascii=False)
+        state = payload["state_json"]
+        if isinstance(state, dict):
+            _compact_state(state)
+            _room_store.replace(board_id, state)
+            b.state_json = json.dumps(state, ensure_ascii=False)
+        else:
+            b.state_json = json.dumps(state, ensure_ascii=False)
         b.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(b)
@@ -123,7 +133,13 @@ def update_board(board_id: int, payload: dict[str, Any], user: User = Depends(ge
 def update_board_public(board_id: int, token: str, payload: dict[str, Any], db: Session = Depends(get_db)):
     b = _allow_board_access(db, board_id, share_token=token)
     if payload.get("state_json") is not None:
-        b.state_json = json.dumps(payload["state_json"], ensure_ascii=False)
+        state = payload["state_json"]
+        if isinstance(state, dict):
+            _compact_state(state)
+            _room_store.replace(board_id, state)
+            b.state_json = json.dumps(state, ensure_ascii=False)
+        else:
+            b.state_json = json.dumps(state, ensure_ascii=False)
         b.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(b)
@@ -166,8 +182,119 @@ async def upload_board_asset(
     return JSONResponse({"url": url_path})
 
 
-class _BoardConnectionManager:
+def _perpendicular_distance(p: dict, a: dict, b: dict) -> float:
+    ax, ay = float(a["x"]), float(a["y"])
+    bx, by = float(b["x"]), float(b["y"])
+    px, py = float(p["x"]), float(p["y"])
+    dx = bx - ax
+    dy = by - ay
+    if dx == 0 and dy == 0:
+        return math.hypot(px - ax, py - ay)
+    t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
+    proj_x = ax + t * dx
+    proj_y = ay + t * dy
+    return math.hypot(px - proj_x, py - proj_y)
+
+
+def _douglas_peucker(points: list[dict], epsilon: float) -> list[dict]:
+    if len(points) <= 2:
+        return points
+    max_dist = 0.0
+    index = 0
+    end = len(points) - 1
+    for i in range(1, end):
+        d = _perpendicular_distance(points[i], points[0], points[end])
+        if d > max_dist:
+            max_dist = d
+            index = i
+    if max_dist > epsilon:
+        left = _douglas_peucker(points[: index + 1], epsilon)
+        right = _douglas_peucker(points[index:], epsilon)
+        return left[:-1] + right
+    return [points[0], points[end]]
+
+
+def _simplify_stroke_points(points: list, epsilon: float = 0.002) -> list:
+    clean = []
+    for pt in points:
+        if not isinstance(pt, dict):
+            continue
+        x, y = pt.get("x"), pt.get("y")
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            clean.append({"x": float(x), "y": float(y)})
+    if len(clean) <= 3:
+        return clean
+    return _douglas_peucker(clean, epsilon)
+
+
+def _compact_state(state: dict) -> None:
+    """Упрощает полилинии in-place перед записью в БД."""
+    for st in state.get("strokes", []):
+        if not isinstance(st, dict):
+            continue
+        pts = st.get("points")
+        if isinstance(pts, list) and len(pts) > 4:
+            st["points"] = _simplify_stroke_points(pts)
+
+
+class _BoardRoomStore:
+    """In-memory state per board + debounced SQLite/Postgres persist."""
+
     def __init__(self):
+        self._states: dict[int, dict] = {}
+        self._persist_tasks: dict[int, asyncio.Task] = {}
+
+    def ensure_loaded(self, board_id: int, initial: dict) -> dict:
+        if board_id not in self._states:
+            self._states[board_id] = copy.deepcopy(initial)
+        return self._states[board_id]
+
+    def replace(self, board_id: int, state: dict) -> None:
+        self._states[board_id] = copy.deepcopy(state)
+
+    def apply(self, board_id: int, op: dict) -> dict:
+        state = self._states[board_id]
+        return _apply_op(state, op)
+
+    def schedule_persist(self, board_id: int) -> None:
+        task = self._persist_tasks.get(board_id)
+        if task and not task.done():
+            task.cancel()
+        self._persist_tasks[board_id] = asyncio.create_task(self._persist_after_delay(board_id))
+
+    async def _persist_after_delay(self, board_id: int) -> None:
+        try:
+            await asyncio.sleep(PERSIST_DEBOUNCE_SEC)
+            await self.flush(board_id)
+        except asyncio.CancelledError:
+            pass
+
+    async def flush(self, board_id: int) -> None:
+        task = self._persist_tasks.pop(board_id, None)
+        if task and not task.done():
+            task.cancel()
+        state = self._states.get(board_id)
+        if state is None:
+            return
+        _compact_state(state)
+        db = SessionLocal()
+        try:
+            b = db.query(Board).filter(Board.id == board_id).first()
+            if not b:
+                return
+            b.state_json = json.dumps(state, ensure_ascii=False)
+            b.updated_at = datetime.utcnow()
+            db.commit()
+        finally:
+            db.close()
+
+
+_room_store = _BoardRoomStore()
+
+
+class _BoardConnectionManager:
+    def __init__(self, store: _BoardRoomStore):
+        self._store = store
         self._rooms: dict[int, set[WebSocket]] = {}
 
     async def connect(self, board_id: int, ws: WebSocket):
@@ -181,6 +308,7 @@ class _BoardConnectionManager:
         room.discard(ws)
         if not room:
             self._rooms.pop(board_id, None)
+            asyncio.create_task(self._store.flush(board_id))
 
     async def broadcast(self, board_id: int, message: dict, *, exclude: WebSocket | None = None):
         room = list(self._rooms.get(board_id, set()))
@@ -194,7 +322,7 @@ class _BoardConnectionManager:
                 self.disconnect(board_id, ws)
 
 
-_manager = _BoardConnectionManager()
+_manager = _BoardConnectionManager(_room_store)
 
 def _load_state(b: Board) -> dict:
     try:
@@ -285,6 +413,18 @@ def _apply_op(state: dict, op: dict) -> dict:
         for st in reversed(state["strokes"]):
             if st.get("id") == sid and isinstance(st.get("points"), list):
                 st["points"].append(p)
+                break
+        return state
+
+    if t == "stroke_simplify":
+        sid = op.get("id")
+        points = op.get("points")
+        if not isinstance(sid, str) or not isinstance(points, list):
+            return state
+        simplified = _simplify_stroke_points(points, epsilon=0.002)
+        for st in state.get("strokes", []):
+            if isinstance(st, dict) and st.get("id") == sid:
+                st["points"] = simplified if len(simplified) >= 2 else st.get("points", [])
                 break
         return state
 
@@ -424,8 +564,9 @@ async def board_ws(ws: WebSocket, board_id: int):
 
         await _manager.connect(board_id, ws)
 
-        # send initial state
-        await ws.send_json({"type": "state", "state": _load_state(b)})
+        initial = _load_state(b)
+        state = _room_store.ensure_loaded(board_id, initial)
+        await ws.send_json({"type": "state", "state": state})
 
         while True:
             msg = await ws.receive_json()
@@ -437,11 +578,8 @@ async def board_ws(ws: WebSocket, board_id: int):
                 if op.get("op") in ("cursor", "cursor_leave"):
                     await _manager.broadcast(board_id, {"type": "op", "op": op}, exclude=ws)
                     continue
-                state = _load_state(b)
-                state = _apply_op(state, op)
-                b.state_json = json.dumps(state, ensure_ascii=False)
-                b.updated_at = datetime.utcnow()
-                db.commit()
+                _room_store.apply(board_id, op)
+                _room_store.schedule_persist(board_id)
                 await _manager.broadcast(board_id, {"type": "op", "op": op}, exclude=ws)
             elif msg.get("type") == "ping":
                 await ws.send_json({"type": "pong"})
@@ -453,4 +591,5 @@ async def board_ws(ws: WebSocket, board_id: int):
             db.close()
         except Exception:
             pass
+        # If room still active, debounced flush continues; empty room flushes in disconnect.
 
