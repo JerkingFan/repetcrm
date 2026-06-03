@@ -231,6 +231,8 @@ function applyBoardOp(
       typeof item.url !== "string"
     )
       return cur;
+    const id = typeof item.id === "string" ? item.id : "";
+    if (id && cur.images.some((im) => im.id === id)) return cur;
     return { ...cur, images: [...cur.images, item as ImageItem] };
   }
   if (t === "image_move") {
@@ -310,6 +312,7 @@ export default function Whiteboard({
   const historyPastRef = useRef<BoardState[]>([]);
   const historyFutureRef = useRef<BoardState[]>([]);
   const eraseHistoryPushedRef = useRef(false);
+  const uploadInFlightRef = useRef(false);
 
   const wsUrl = useMemo(() => api.boards.wsUrl(boardId, shareToken, authToken), [boardId, shareToken, authToken]);
 
@@ -630,9 +633,20 @@ export default function Whiteboard({
 
   const finishImageEdit = useCallback(() => {
     const edit = imageEditRef.current;
-    if (edit.active && edit.id) commitImageUpdate(edit.id);
+    if (!edit.active) return;
+    if (edit.id) commitImageUpdate(edit.id);
     imageEditRef.current = { active: false };
   }, [commitImageUpdate]);
+
+  useEffect(() => {
+    const endImageEdit = () => finishImageEdit();
+    window.addEventListener("pointerup", endImageEdit);
+    window.addEventListener("pointercancel", endImageEdit);
+    return () => {
+      window.removeEventListener("pointerup", endImageEdit);
+      window.removeEventListener("pointercancel", endImageEdit);
+    };
+  }, [finishImageEdit]);
 
   const [textDraft, setTextDraft] = useState<{ active: boolean; x: number; y: number; value: string }>({
     active: false,
@@ -650,9 +664,9 @@ export default function Whiteboard({
 
       const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
       const p = screenToWorld(pScreen, cam);
+      const hit = findImageAt(normalizeState(state).images, p);
 
       if (tool === "move" || tool === "image") {
-        const hit = findImageAt(normalizeState(state).images, p);
         if (hit) {
           setSelectedImageId(hit.id);
           pushHistory();
@@ -668,6 +682,8 @@ export default function Whiteboard({
           setSelectedImageId(null);
           return;
         }
+      } else if (hit && tool !== "erase" && tool !== "pen") {
+        setSelectedImageId(hit.id);
       }
 
       const isPan = e.button === 1 || (e.button === 0 && e.shiftKey) || tool === "move";
@@ -793,20 +809,22 @@ export default function Whiteboard({
 
   const handleImageResizeStart = useCallback(
     (e: React.PointerEvent<HTMLDivElement>, corner: ResizeCorner) => {
-      if (readonly || !selectedImage) return;
+      if (readonly || !selectedImageId) return;
+      const im = stateRef.current.images.find((i) => i.id === selectedImageId);
+      if (!im) return;
       e.stopPropagation();
       e.preventDefault();
       (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
       pushHistory();
       imageEditRef.current = {
         active: true,
-        id: selectedImage.id,
+        id: im.id,
         mode: "resize",
         corner,
-        start: { x: selectedImage.x, y: selectedImage.y, w: selectedImage.w, h: selectedImage.h },
+        start: { x: im.x, y: im.y, w: im.w, h: im.h },
       };
     },
-    [readonly, selectedImage, pushHistory]
+    [readonly, selectedImageId, pushHistory]
   );
 
   const handleOverlayMoveStart = useCallback(
@@ -854,53 +872,45 @@ export default function Whiteboard({
     [updateImageInState]
   );
 
-  const onWrapPointerUp = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (imageEditRef.current.active) {
-        try {
-          (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
-        } catch {
-          // ignore
-        }
-        finishImageEdit();
-      }
-    },
-    [finishImageEdit]
-  );
-
   const onUploadImage = useCallback(
     async (file: File) => {
+      if (uploadInFlightRef.current) return;
       if (!shareToken) {
         alert("Для загрузки картинки нужен share-токен доски.");
         return;
       }
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch(api.boards.uploadAssetUrl(boardId, shareToken), { method: "POST", body: form });
-      if (!res.ok) throw new Error("upload failed");
-      const data = await res.json();
-      const url = data.url as string;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
+      uploadInFlightRef.current = true;
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch(api.boards.uploadAssetUrl(boardId, shareToken), { method: "POST", body: form });
+        if (!res.ok) throw new Error("upload failed");
+        const data = await res.json();
+        const url = data.url as string;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
 
-      // place image in the center
-      // place image in the viewport center (world coords)
-      const rect = canvas.getBoundingClientRect();
-      const w = clamp(0.4 / cam.zoom, 0.1 / cam.zoom, 0.9 / cam.zoom);
-      const h = (w * rect.width) / rect.height;
-      const x = cam.x + (0.5 / cam.zoom) - w / 2;
-      const y = cam.y + (0.5 / cam.zoom) - h / 2;
-      const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        const rect = canvas.getBoundingClientRect();
+        const w = clamp(0.4 / cam.zoom, 0.1 / cam.zoom, 0.9 / cam.zoom);
+        const h = (w * rect.width) / rect.height;
+        const x = cam.x + (0.5 / cam.zoom) - w / 2;
+        const y = cam.y + (0.5 / cam.zoom) - h / 2;
+        const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-      pushHistory();
-      setState((prev) => {
-        const cur = normalizeState(prev);
-        const item = { id, x, y, w, h, url };
-        return { ...cur, images: [...cur.images, item] };
-      });
-      sendOp({ op: "image_add", item: { id, x, y, w, h, url } });
-      setSelectedImageId(id);
-      setTool("image");
+        pushHistory();
+        setState((prev) => {
+          const cur = normalizeState(prev);
+          const item = { id, x, y, w, h, url };
+          return { ...cur, images: [...cur.images, item] };
+        });
+        sendOp({ op: "image_add", item: { id, x, y, w, h, url } });
+        setSelectedImageId(id);
+        setTool("image");
+      } catch {
+        alert("Не удалось загрузить картинку");
+      } finally {
+        uploadInFlightRef.current = false;
+      }
     },
     [boardId, shareToken, sendOp, cam, pushHistory]
   );
@@ -1032,19 +1042,6 @@ export default function Whiteboard({
           boardHoverRef.current = false;
         }}
         onPointerMove={onWrapPointerMove}
-        onPointerUp={onWrapPointerUp}
-        onPaste={(e) => {
-          wrapRef.current?.focus();
-          const item = e.clipboardData?.items?.[0];
-          if (!item) return;
-          if (item.type.startsWith("image/")) {
-            const file = item.getAsFile();
-            if (file) {
-              e.preventDefault();
-              onUploadImage(file).catch(() => alert("Не удалось вставить картинку"));
-            }
-          }
-        }}
         onDragOver={(e) => {
           e.preventDefault();
         }}
@@ -1093,28 +1090,33 @@ export default function Whiteboard({
           onPointerCancel={onPointerUp}
           onPointerLeave={() => sendOp({ op: "cursor_leave", id: clientIdRef.current })}
         />
-        {selectedImage && !readonly && (tool === "image" || tool === "move") && (
+        {selectedImage && !readonly && (
           <div className="absolute z-[15] pointer-events-none" style={imageScreenStyle(selectedImage, cam)}>
             <div className="absolute inset-0 border-2 border-blue-500 rounded-sm" />
-            <div
-              className="absolute inset-0 cursor-move pointer-events-auto"
-              onPointerDown={handleOverlayMoveStart}
-            />
-            {tool === "image" &&
-              (["nw", "ne", "sw", "se"] as ResizeCorner[]).map((corner) => (
-                <div
-                  key={corner}
-                  className="absolute w-3.5 h-3.5 bg-white border-2 border-blue-500 rounded-sm pointer-events-auto z-20 shadow"
-                  style={{
-                    left: corner.includes("w") ? -7 : undefined,
-                    right: corner.includes("e") ? -7 : undefined,
-                    top: corner.includes("n") ? -7 : undefined,
-                    bottom: corner.includes("s") ? -7 : undefined,
-                    cursor: corner === "nw" || corner === "se" ? "nwse-resize" : "nesw-resize",
-                  }}
-                  onPointerDown={(e) => handleImageResizeStart(e, corner)}
-                />
-              ))}
+            {(tool === "image" || tool === "move") && (
+              <div
+                className="absolute inset-0 cursor-move pointer-events-auto"
+                onPointerDown={handleOverlayMoveStart}
+                onPointerUp={() => finishImageEdit()}
+                onPointerCancel={() => finishImageEdit()}
+              />
+            )}
+            {(["nw", "ne", "sw", "se"] as ResizeCorner[]).map((corner) => (
+              <div
+                key={corner}
+                className="absolute w-3.5 h-3.5 bg-white border-2 border-blue-500 rounded-sm pointer-events-auto z-20 shadow"
+                style={{
+                  left: corner.includes("w") ? -7 : undefined,
+                  right: corner.includes("e") ? -7 : undefined,
+                  top: corner.includes("n") ? -7 : undefined,
+                  bottom: corner.includes("s") ? -7 : undefined,
+                  cursor: corner === "nw" || corner === "se" ? "nwse-resize" : "nesw-resize",
+                }}
+                onPointerDown={(e) => handleImageResizeStart(e, corner)}
+                onPointerUp={() => finishImageEdit()}
+                onPointerCancel={() => finishImageEdit()}
+              />
+            ))}
           </div>
         )}
         <div className="absolute inset-0 pointer-events-none">

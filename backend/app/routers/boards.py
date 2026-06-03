@@ -295,6 +295,11 @@ def _apply_op(state: dict, op: dict) -> dict:
     if t == "image_add":
         item = op.get("item")
         if isinstance(item, dict):
+            iid = item.get("id")
+            if isinstance(iid, str) and iid:
+                for it in state.get("images", []):
+                    if isinstance(it, dict) and it.get("id") == iid:
+                        return state
             state["images"].append(item)
         return state
 
