@@ -45,24 +45,7 @@ export default function PublicBoardPage() {
         </div>
       )}
       {board && (
-        <>
-          <div className="absolute top-0 left-0 right-0 z-20 bg-white/90 backdrop-blur border-b border-slate-200 p-3 lg:p-4">
-            <div className="max-w-[1400px] mx-auto flex items-center justify-between gap-3">
-              <div>
-                <h1 className="text-lg lg:text-xl font-bold text-brand-blue">{board.title || "Виртуальная доска"}</h1>
-                <p className="text-slate-500 text-xs lg:text-sm mt-0.5">
-                  Гостевой режим: можно писать, рисовать и вставлять картинки.
-                </p>
-              </div>
-              <a className="text-sm text-brand-blue hover:underline" href="/login">
-                Войти в CRM →
-              </a>
-            </div>
-          </div>
-          <div className="absolute inset-0 pt-[64px] lg:pt-[72px]">
-            <Whiteboard boardId={board.id} shareToken={token} initialState={board.state_json} fullscreen />
-          </div>
-        </>
+        <Whiteboard boardId={board.id} shareToken={token} initialState={board.state_json} fullscreen />
       )}
     </div>
   );
