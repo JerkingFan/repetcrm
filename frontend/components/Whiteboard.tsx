@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { api } from "@/lib/api";
 import {
   ArrowDownTrayIcon,
@@ -97,6 +97,56 @@ function imageHit(im: ImageItem, p: Point, r: number): boolean {
   return p.x >= im.x - r && p.x <= im.x + im.w + r && p.y >= im.y - r && p.y <= im.y + im.h + r;
 }
 
+function findImageAt(images: ImageItem[], p: Point): ImageItem | null {
+  return (
+    [...images].reverse().find((im) => p.x >= im.x && p.x <= im.x + im.w && p.y >= im.y && p.y <= im.y + im.h) ?? null
+  );
+}
+
+type ResizeCorner = "nw" | "ne" | "sw" | "se";
+const MIN_IMAGE_SIZE = 0.05;
+
+function computeImageResize(
+  corner: ResizeCorner,
+  start: { x: number; y: number; w: number; h: number },
+  p: Point
+): { x: number; y: number; w: number; h: number } {
+  let { x, y, w, h } = start;
+  if (corner === "se") {
+    w = Math.max(MIN_IMAGE_SIZE, p.x - x);
+    h = Math.max(MIN_IMAGE_SIZE, p.y - y);
+  } else if (corner === "nw") {
+    const nx = Math.min(p.x, x + w - MIN_IMAGE_SIZE);
+    const ny = Math.min(p.y, y + h - MIN_IMAGE_SIZE);
+    w = x + w - nx;
+    h = y + h - ny;
+    x = nx;
+    y = ny;
+  } else if (corner === "ne") {
+    const ny = Math.min(p.y, y + h - MIN_IMAGE_SIZE);
+    w = Math.max(MIN_IMAGE_SIZE, p.x - x);
+    h = y + h - ny;
+    y = ny;
+  } else if (corner === "sw") {
+    const nx = Math.min(p.x, x + w - MIN_IMAGE_SIZE);
+    w = x + w - nx;
+    h = Math.max(MIN_IMAGE_SIZE, p.y - y);
+    x = nx;
+  }
+  return { x, y, w, h };
+}
+
+function imageScreenStyle(im: ImageItem, cam: Camera): CSSProperties {
+  const tl = worldToScreen({ x: im.x, y: im.y }, cam);
+  const br = worldToScreen({ x: im.x + im.w, y: im.y + im.h }, cam);
+  return {
+    left: `${tl.x * 100}%`,
+    top: `${tl.y * 100}%`,
+    width: `${(br.x - tl.x) * 100}%`,
+    height: `${(br.y - tl.y) * 100}%`,
+  };
+}
+
 function applyErase(cur: BoardState, p: Point, r: number): BoardState {
   const r2 = r * r;
   const strokes = cur.strokes.filter(
@@ -121,6 +171,8 @@ function applyBoardOp(
     item?: unknown;
     x?: unknown;
     y?: unknown;
+    w?: unknown;
+    h?: unknown;
     state?: unknown;
   }
 ): BoardState {
@@ -186,6 +238,28 @@ function applyBoardOp(
     const images = cur.images.map((im) => (im.id === op.id ? { ...im, x: op.x as number, y: op.y as number } : im));
     return { ...cur, images };
   }
+  if (t === "image_update") {
+    if (
+      typeof op.id !== "string" ||
+      typeof op.x !== "number" ||
+      typeof op.y !== "number" ||
+      typeof op.w !== "number" ||
+      typeof op.h !== "number"
+    )
+      return cur;
+    const images = cur.images.map((im) =>
+      im.id === op.id
+        ? {
+            ...im,
+            x: op.x as number,
+            y: op.y as number,
+            w: Math.max(MIN_IMAGE_SIZE, op.w as number),
+            h: Math.max(MIN_IMAGE_SIZE, op.h as number),
+          }
+        : im
+    );
+    return { ...cur, images };
+  }
   if (t === "erase") {
     const p = op.p as unknown;
     const r = op.r;
@@ -225,6 +299,11 @@ export default function Whiteboard({
   const [textSize, setTextSize] = useState(24);
   const [status, setStatus] = useState<"offline" | "connecting" | "online">("offline");
   const [cam, setCam] = useState<Camera>({ x: -0.5, y: -0.5, zoom: 1 });
+  const camRef = useRef(cam);
+  useEffect(() => {
+    camRef.current = cam;
+  }, [cam]);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
@@ -519,7 +598,42 @@ export default function Whiteboard({
   // Drawing
   const drawingRef = useRef<{ active: boolean; id: string | null }>({ active: false, id: null });
   const panRef = useRef<{ active: boolean; start?: Point; cam0?: Camera }>({ active: false });
-  const dragImageRef = useRef<{ active: boolean; id?: string; grab?: Point }>({ active: false });
+  const imageEditRef = useRef<{
+    active: boolean;
+    id?: string;
+    mode?: "move" | "resize";
+    corner?: ResizeCorner;
+    grab?: Point;
+    start?: { x: number; y: number; w: number; h: number };
+  }>({ active: false });
+  const selectedImage = useMemo(
+    () => state.images.find((im) => im.id === selectedImageId) ?? null,
+    [state.images, selectedImageId]
+  );
+
+  const commitImageUpdate = useCallback(
+    (id: string) => {
+      const im = stateRef.current.images.find((i) => i.id === id);
+      if (!im) return;
+      sendOp({ op: "image_update", id, x: im.x, y: im.y, w: im.w, h: im.h });
+    },
+    [sendOp]
+  );
+
+  const updateImageInState = useCallback((id: string, patch: Partial<ImageItem>) => {
+    setState((prev) => {
+      const cur = normalizeState(prev);
+      const images = cur.images.map((im) => (im.id === id ? { ...im, ...patch } : im));
+      return { ...cur, images };
+    });
+  }, []);
+
+  const finishImageEdit = useCallback(() => {
+    const edit = imageEditRef.current;
+    if (edit.active && edit.id) commitImageUpdate(edit.id);
+    imageEditRef.current = { active: false };
+  }, [commitImageUpdate]);
+
   const [textDraft, setTextDraft] = useState<{ active: boolean; x: number; y: number; value: string }>({
     active: false,
     x: 0,
@@ -536,6 +650,25 @@ export default function Whiteboard({
 
       const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
       const p = screenToWorld(pScreen, cam);
+
+      if (tool === "move" || tool === "image") {
+        const hit = findImageAt(normalizeState(state).images, p);
+        if (hit) {
+          setSelectedImageId(hit.id);
+          pushHistory();
+          imageEditRef.current = {
+            active: true,
+            id: hit.id,
+            mode: "move",
+            grab: { x: p.x - hit.x, y: p.y - hit.y },
+          };
+          return;
+        }
+        if (tool === "image") {
+          setSelectedImageId(null);
+          return;
+        }
+      }
 
       const isPan = e.button === 1 || (e.button === 0 && e.shiftKey) || tool === "move";
       if (isPan) {
@@ -561,15 +694,6 @@ export default function Whiteboard({
           const el = document.getElementById("wb-text-input") as HTMLInputElement | null;
           el?.focus();
         }, 0);
-      } else if (tool === "image") {
-        const cur = normalizeState(state);
-        const hit = [...cur.images]
-          .reverse()
-          .find((im) => p.x >= im.x && p.x <= im.x + im.w && p.y >= im.y && p.y <= im.y + im.h);
-        if (hit) {
-          pushHistory();
-          dragImageRef.current = { active: true, id: hit.id, grab: { x: p.x - hit.x, y: p.y - hit.y } };
-        }
       }
     },
     [readonly, tool, color, width, sendOp, cam, state, pushHistory]
@@ -612,18 +736,22 @@ export default function Whiteboard({
         return;
       }
 
-      if (dragImageRef.current.active && dragImageRef.current.id && dragImageRef.current.grab) {
-        const id = dragImageRef.current.id;
-        const grab = dragImageRef.current.grab;
-        const nx = p.x - grab.x;
-        const ny = p.y - grab.y;
-        setState((prev) => {
-          const cur = normalizeState(prev);
-          const images = cur.images.map((im) => (im.id === id ? { ...im, x: nx, y: ny } : im));
-          return { ...cur, images };
-        });
-        sendOp({ op: "image_move", id, x: nx, y: ny });
-        return;
+      if (imageEditRef.current.active && imageEditRef.current.id) {
+        const id = imageEditRef.current.id;
+        if (imageEditRef.current.mode === "move" && imageEditRef.current.grab) {
+          const grab = imageEditRef.current.grab;
+          updateImageInState(id, { x: p.x - grab.x, y: p.y - grab.y });
+          return;
+        }
+        if (
+          imageEditRef.current.mode === "resize" &&
+          imageEditRef.current.corner &&
+          imageEditRef.current.start
+        ) {
+          const rect = computeImageResize(imageEditRef.current.corner, imageEditRef.current.start, p);
+          updateImageInState(id, rect);
+          return;
+        }
       }
 
       if (tool === "erase") {
@@ -647,7 +775,7 @@ export default function Whiteboard({
       });
       scheduleStrokePoint(id, p);
     },
-    [readonly, tool, scheduleStrokePoint, sendOp, cam, pushHistory]
+    [readonly, tool, scheduleStrokePoint, sendOp, cam, pushHistory, updateImageInState]
   );
 
   const onPointerUp = useCallback(
@@ -657,10 +785,87 @@ export default function Whiteboard({
       drawingRef.current.active = false;
       drawingRef.current.id = null;
       panRef.current.active = false;
-      dragImageRef.current.active = false;
+      finishImageEdit();
       eraseHistoryPushedRef.current = false;
     },
-    []
+    [finishImageEdit]
+  );
+
+  const handleImageResizeStart = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>, corner: ResizeCorner) => {
+      if (readonly || !selectedImage) return;
+      e.stopPropagation();
+      e.preventDefault();
+      (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+      pushHistory();
+      imageEditRef.current = {
+        active: true,
+        id: selectedImage.id,
+        mode: "resize",
+        corner,
+        start: { x: selectedImage.x, y: selectedImage.y, w: selectedImage.w, h: selectedImage.h },
+      };
+    },
+    [readonly, selectedImage, pushHistory]
+  );
+
+  const handleOverlayMoveStart = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (readonly || !selectedImage) return;
+      e.stopPropagation();
+      e.preventDefault();
+      (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
+      const p = screenToWorld(pScreen, camRef.current);
+      pushHistory();
+      imageEditRef.current = {
+        active: true,
+        id: selectedImage.id,
+        mode: "move",
+        grab: { x: p.x - selectedImage.x, y: p.y - selectedImage.y },
+      };
+    },
+    [readonly, selectedImage, pushHistory]
+  );
+
+  const onWrapPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!imageEditRef.current.active) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
+      const p = screenToWorld(pScreen, camRef.current);
+      const id = imageEditRef.current.id;
+      if (!id) return;
+      if (imageEditRef.current.mode === "move" && imageEditRef.current.grab) {
+        const grab = imageEditRef.current.grab;
+        updateImageInState(id, { x: p.x - grab.x, y: p.y - grab.y });
+      } else if (
+        imageEditRef.current.mode === "resize" &&
+        imageEditRef.current.corner &&
+        imageEditRef.current.start
+      ) {
+        const rect = computeImageResize(imageEditRef.current.corner, imageEditRef.current.start, p);
+        updateImageInState(id, rect);
+      }
+    },
+    [updateImageInState]
+  );
+
+  const onWrapPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (imageEditRef.current.active) {
+        try {
+          (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+        } catch {
+          // ignore
+        }
+        finishImageEdit();
+      }
+    },
+    [finishImageEdit]
   );
 
   const onUploadImage = useCallback(
@@ -694,9 +899,62 @@ export default function Whiteboard({
         return { ...cur, images: [...cur.images, item] };
       });
       sendOp({ op: "image_add", item: { id, x, y, w, h, url } });
+      setSelectedImageId(id);
+      setTool("image");
     },
     [boardId, shareToken, sendOp, cam, pushHistory]
   );
+
+  const boardHoverRef = useRef(false);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!boardHoverRef.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      let delta = e.deltaY;
+      if (e.deltaMode === 1) delta *= 16;
+      if (e.deltaMode === 2) delta *= rect.height;
+
+      setCam((c) => {
+        if (e.ctrlKey || e.metaKey) {
+          const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
+          const before = screenToWorld(pScreen, c);
+          const factor = Math.exp(-delta * 0.002);
+          const nextZoom = clamp(c.zoom * factor, 0.25, 6);
+          const after = screenToWorld(pScreen, { ...c, zoom: nextZoom });
+          return {
+            ...c,
+            zoom: nextZoom,
+            x: c.x + (before.x - after.x),
+            y: c.y + (before.y - after.y),
+          };
+        }
+        const scale = 1 / c.zoom;
+        return {
+          ...c,
+          x: c.x + ((e.deltaX || 0) / rect.width) * scale,
+          y: c.y + (delta / rect.height) * scale,
+        };
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  useEffect(() => {
+    const blockCtrlZoom = (e: WheelEvent) => {
+      if (!boardHoverRef.current) return;
+      if (e.ctrlKey || e.metaKey) e.preventDefault();
+    };
+    document.addEventListener("wheel", blockCtrlZoom, { passive: false, capture: true });
+    return () => document.removeEventListener("wheel", blockCtrlZoom, { capture: true });
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -726,6 +984,8 @@ export default function Whiteboard({
       } else if (key === "m") {
         e.preventDefault();
         setTool("move");
+      } else if (key === "escape") {
+        setSelectedImageId(null);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -765,31 +1025,14 @@ export default function Whiteboard({
             : "rounded-2xl border bg-white overflow-hidden relative pt-14"
         }
         tabIndex={0}
-        onWheel={(e) => {
-          e.preventDefault();
-          const canvas = canvasRef.current;
-          if (!canvas) return;
-          const rect = canvas.getBoundingClientRect();
-          if (e.ctrlKey || e.metaKey) {
-            const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
-            const before = screenToWorld(pScreen, cam);
-            const nextZoom = clamp(cam.zoom * (e.deltaY > 0 ? 0.9 : 1.1), 0.25, 6);
-            const after = screenToWorld(pScreen, { ...cam, zoom: nextZoom });
-            setCam({
-              ...cam,
-              zoom: nextZoom,
-              x: cam.x + (before.x - after.x),
-              y: cam.y + (before.y - after.y),
-            });
-          } else {
-            const scale = 1 / cam.zoom;
-            setCam({
-              ...cam,
-              x: cam.x + ((e.deltaX || 0) / rect.width) * scale,
-              y: cam.y + ((e.deltaY || 0) / rect.height) * scale,
-            });
-          }
+        onMouseEnter={() => {
+          boardHoverRef.current = true;
         }}
+        onMouseLeave={() => {
+          boardHoverRef.current = false;
+        }}
+        onPointerMove={onWrapPointerMove}
+        onPointerUp={onWrapPointerUp}
         onPaste={(e) => {
           wrapRef.current?.focus();
           const item = e.clipboardData?.items?.[0];
@@ -850,6 +1093,30 @@ export default function Whiteboard({
           onPointerCancel={onPointerUp}
           onPointerLeave={() => sendOp({ op: "cursor_leave", id: clientIdRef.current })}
         />
+        {selectedImage && !readonly && (tool === "image" || tool === "move") && (
+          <div className="absolute z-[15] pointer-events-none" style={imageScreenStyle(selectedImage, cam)}>
+            <div className="absolute inset-0 border-2 border-blue-500 rounded-sm" />
+            <div
+              className="absolute inset-0 cursor-move pointer-events-auto"
+              onPointerDown={handleOverlayMoveStart}
+            />
+            {tool === "image" &&
+              (["nw", "ne", "sw", "se"] as ResizeCorner[]).map((corner) => (
+                <div
+                  key={corner}
+                  className="absolute w-3.5 h-3.5 bg-white border-2 border-blue-500 rounded-sm pointer-events-auto z-20 shadow"
+                  style={{
+                    left: corner.includes("w") ? -7 : undefined,
+                    right: corner.includes("e") ? -7 : undefined,
+                    top: corner.includes("n") ? -7 : undefined,
+                    bottom: corner.includes("s") ? -7 : undefined,
+                    cursor: corner === "nw" || corner === "se" ? "nwse-resize" : "nesw-resize",
+                  }}
+                  onPointerDown={(e) => handleImageResizeStart(e, corner)}
+                />
+              ))}
+          </div>
+        )}
         <div className="absolute inset-0 pointer-events-none">
           {Object.values(cursors).map((c) => (
             <div
@@ -929,7 +1196,7 @@ export default function Whiteboard({
               className={`p-2 rounded-xl border ${tool === "image" ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"}`}
               onClick={() => setTool("image")}
               disabled={readonly}
-              title="Картинки (перемещение)"
+              title="Картинки: перетащить, углы — размер"
             >
               <PhotoIcon className="w-5 h-5" />
             </button>
@@ -1029,7 +1296,7 @@ export default function Whiteboard({
               </>
             )}
             <p className="hidden lg:block text-[10px] text-slate-500 leading-tight max-w-[220px] ml-1">
-              P ручка · E ластик · M движение · колесо — пан · Ctrl+колесо — зум · Ctrl+Z отмена
+              P/E/M · колесо — пан · Ctrl+колесо — зум доски · картинка: углы — размер
             </p>
           </div>
         </div>

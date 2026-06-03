@@ -311,6 +311,29 @@ def _apply_op(state: dict, op: dict) -> dict:
                 break
         return state
 
+    if t == "image_update":
+        iid = op.get("id")
+        x = op.get("x")
+        y = op.get("y")
+        w = op.get("w")
+        h = op.get("h")
+        if (
+            not isinstance(iid, str)
+            or not isinstance(x, (int, float))
+            or not isinstance(y, (int, float))
+            or not isinstance(w, (int, float))
+            or not isinstance(h, (int, float))
+        ):
+            return state
+        for it in state.get("images", []):
+            if isinstance(it, dict) and it.get("id") == iid:
+                it["x"] = float(x)
+                it["y"] = float(y)
+                it["w"] = max(0.02, float(w))
+                it["h"] = max(0.02, float(h))
+                break
+        return state
+
     if t == "erase":
         p = op.get("p")
         r = op.get("r")
