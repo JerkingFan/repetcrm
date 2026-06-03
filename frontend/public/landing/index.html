@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="CRM для репетиторов: учёт занятий и оплат, AI-генерация домашних заданий за 1 минуту." />
+  <title>RepetCRM — CRM для репетиторов с AI-домашками</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { blue: '#1E3A8A', green: '#10B981' },
+          },
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          boxShadow: {
+            card: '0 4px 24px -4px rgba(30, 58, 138, 0.08)',
+            'card-hover': '0 12px 40px -8px rgba(30, 58, 138, 0.15)',
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="stylesheet" href="/landing/styles.css" />
+</head>
+<body class="font-sans text-slate-800 bg-white antialiased">
+
+  <!-- Header -->
+  <header id="header" class="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-100 transition-shadow">
+    <nav class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16 lg:h-18">
+      <a href="#" class="flex items-center gap-2 group">
+        <span class="w-9 h-9 rounded-xl bg-brand-blue flex items-center justify-center text-white font-bold text-sm shadow-md group-hover:scale-105 transition-transform">R</span>
+        <span class="font-bold text-brand-blue text-lg">Repet<span class="text-brand-green">CRM</span></span>
+      </a>
+      <ul class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">
+        <li><a href="#why" class="hover:text-brand-blue transition-colors">Преимущества</a></li>
+        <li><a href="#how" class="hover:text-brand-blue transition-colors">Как работает</a></li>
+        <li><a href="#audience" class="hover:text-brand-blue transition-colors">Кому подойдёт</a></li>
+        <li><a href="#reviews" class="hover:text-brand-blue transition-colors">Отзывы</a></li>
+        <li><a href="#faq" class="hover:text-brand-blue transition-colors">FAQ</a></li>
+      </ul>
+      <a href="/register" class="hidden md:inline-flex items-center px-5 py-2.5 rounded-xl bg-brand-green text-white text-sm font-semibold shadow-md hover:bg-emerald-600 hover:shadow-lg transition-all btn-primary">Войти в CRM</a>
+      <button id="menu-toggle" type="button" class="md:hidden p-2 rounded-lg text-brand-blue hover:bg-slate-100" aria-label="Меню" aria-expanded="false">
+        <i data-lucide="menu" class="w-6 h-6" id="icon-menu"></i>
+        <i data-lucide="x" class="w-6 h-6 hidden" id="icon-close"></i>
+      </button>
+    </nav>
+    <div id="mobile-menu" class="md:hidden hidden border-t border-slate-100 bg-white">
+      <ul class="px-4 py-4 flex flex-col gap-3 text-sm font-medium">
+        <li><a href="#why" class="mobile-link block py-2 text-slate-600">Преимущества</a></li>
+        <li><a href="#how" class="mobile-link block py-2 text-slate-600">Как работает</a></li>
+        <li><a href="#audience" class="mobile-link block py-2 text-slate-600">Кому подойдёт</a></li>
+        <li><a href="#reviews" class="mobile-link block py-2 text-slate-600">Отзывы</a></li>
+        <li><a href="#faq" class="mobile-link block py-2 text-slate-600">FAQ</a></li>
+        <li><a href="/register" class="mobile-link mt-2 inline-flex justify-center px-5 py-3 rounded-xl bg-brand-green text-white font-semibold">Начать бесплатно</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero -->
+    <section class="relative pt-28 pb-16 lg:pt-36 lg:pb-24 overflow-hidden">
+      <div class="absolute inset-0 bg-gradient-to-br from-blue-50 via-white to-emerald-50/60 -z-10"></div>
+      <div class="absolute top-20 right-0 w-96 h-96 bg-brand-green/10 rounded-full blur-3xl -z-10"></div>
+      <div class="absolute bottom-0 left-0 w-80 h-80 bg-brand-blue/10 rounded-full blur-3xl -z-10"></div>
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+          <div class="reveal">
+            <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-brand-green text-xs font-semibold uppercase tracking-wide mb-6">
+              <i data-lucide="sparkles" class="w-4 h-4"></i>
+              AI-домашки за 1 минуту
+            </span>
+            <h1 class="text-2xl sm:text-3xl lg:text-[1.65rem] xl:text-3xl font-extrabold text-brand-blue leading-tight tracking-tight">
+              CRM для репетиторов: автоматический учёт занятий и оплат + AI-генерация домашних заданий за 1 минуту — сэкономьте до 1&nbsp;500&nbsp;Br в год за счёт наведения порядка и отказа от ручного труда в Excel и чатах
+            </h1>
+            <p class="mt-6 text-lg text-slate-600 leading-relaxed">
+              Отслеживайте прогресс учеников, забудьте о потерянных оплатах и готовьте ДЗ в 30 раз быстрее.
+            </p>
+            <ul class="mt-8 space-y-3">
+              <li class="flex items-start gap-3 text-slate-700">
+                <i data-lucide="check-circle" class="w-5 h-5 text-brand-green shrink-0 mt-0.5"></i>
+                <span>Без хаоса в Excel и чатах — всё в одном месте</span>
+              </li>
+              <li class="flex items-start gap-3 text-slate-700">
+                <i data-lucide="check-circle" class="w-5 h-5 text-brand-green shrink-0 mt-0.5"></i>
+                <span>Персональные PDF-домашки под уровень каждого ученика</span>
+              </li>
+              <li class="flex items-start gap-3 text-slate-700">
+                <i data-lucide="check-circle" class="w-5 h-5 text-brand-green shrink-0 mt-0.5"></i>
+                <span>Старт за 2 минуты — без установки программ</span>
+              </li>
+            </ul>
+            <div class="mt-10 flex flex-col sm:flex-row gap-4">
+              <a href="/register" class="btn-primary inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-brand-green text-white font-semibold text-lg shadow-lg hover:bg-emerald-600 transition-all">
+                Начать бесплатно
+                <i data-lucide="arrow-right" class="w-5 h-5"></i>
+              </a>
+              <a href="#how" class="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl border-2 border-brand-blue/20 text-brand-blue font-semibold hover:border-brand-blue hover:bg-blue-50 transition-all">
+                <i data-lucide="play-circle" class="w-5 h-5"></i>
+                Как это работает
+              </a>
+            </div>
+            <p class="mt-6 text-sm text-slate-500 flex items-center gap-2">
+              <i data-lucide="users" class="w-4 h-4 text-brand-green"></i>
+              52 репетитора уже с нами
+            </p>
+          </div>
+          <div class="reveal reveal-delay-2 relative">
+            <div class="relative rounded-2xl bg-white shadow-card border border-slate-100 p-6 lg:p-8">
+              <div class="flex items-center justify-between mb-6">
+                <span class="text-sm font-semibold text-brand-blue">Панель репетитора</span>
+                <span class="px-2 py-1 rounded-md bg-emerald-100 text-brand-green text-xs font-medium">+600 Br</span>
+              </div>
+              <div class="space-y-4">
+                <div class="flex items-center gap-4 p-4 rounded-xl bg-slate-50">
+                  <div class="w-10 h-10 rounded-full bg-brand-blue/10 flex items-center justify-center">
+                    <i data-lucide="wallet" class="w-5 h-5 text-brand-blue"></i>
+                  </div>
+                  <div class="flex-1">
+                    <p class="text-sm font-medium">Оплаты за месяц</p>
+                    <p class="text-xs text-slate-500">3 напоминания отправлены</p>
+                  </div>
+                  <span class="text-brand-green font-bold">98%</span>
+                </div>
+                <div class="flex items-center gap-4 p-4 rounded-xl bg-slate-50">
+                  <div class="w-10 h-10 rounded-full bg-brand-green/10 flex items-center justify-center">
+                    <i data-lucide="file-text" class="w-5 h-5 text-brand-green"></i>
+                  </div>
+                  <div class="flex-1">
+                    <p class="text-sm font-medium">ДЗ для Анны К.</p>
+                    <p class="text-xs text-slate-500">Сгенерировано за 28 сек</p>
+                  </div>
+                  <i data-lucide="download" class="w-5 h-5 text-brand-blue"></i>
+                </div>
+                <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
+                  <div class="h-full w-3/4 rounded-full bg-gradient-to-r from-brand-blue to-brand-green"></div>
+                </div>
+                <p class="text-xs text-center text-slate-500">Прогресс учеников по темам</p>
+              </div>
+            </div>
+            <div class="absolute -bottom-4 -left-4 lg:-left-8 px-4 py-3 rounded-xl bg-white shadow-card border border-slate-100 flex items-center gap-3 reveal reveal-delay-3">
+              <i data-lucide="clock" class="w-8 h-8 text-brand-green"></i>
+              <div>
+                <p class="text-xs text-slate-500">Экономия времени</p>
+                <p class="font-bold text-brand-blue">−40% рутины</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pain points -->
+    <section class="py-16 lg:py-20 bg-slate-50">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center max-w-2xl mx-auto reveal">
+          <h2 class="text-2xl lg:text-3xl font-bold text-brand-blue">Знакомо?</h2>
+          <p class="mt-4 text-slate-600">Вы не одиноки — тысячи репетиторов теряют деньги и энергию из-за хаоса в организации</p>
+        </div>
+        <div class="mt-12 grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <article class="reveal card-hover p-6 rounded-2xl bg-white shadow-card border border-slate-100">
+            <div class="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center mb-4">
+              <i data-lucide="trending-down" class="w-6 h-6 text-red-500"></i>
+            </div>
+            <h3 class="font-semibold text-brand-blue">−10–20% дохода</h3>
+            <p class="mt-2 text-sm text-slate-600">Потерянные оплаты и забытые занятия в таблицах и чатах</p>
+          </article>
+          <article class="reveal reveal-delay-1 card-hover p-6 rounded-2xl bg-white shadow-card border border-slate-100">
+            <div class="w-12 h-12 rounded-xl bg-amber-50 flex items-center justify-center mb-4">
+              <i data-lucide="battery-low" class="w-6 h-6 text-amber-500"></i>
+            </div>
+            <h3 class="font-semibold text-brand-blue">Выгорание</h3>
+            <p class="mt-2 text-sm text-slate-600">Час на каждую домашку вместо живого общения с учениками</p>
+          </article>
+          <article class="reveal reveal-delay-2 card-hover p-6 rounded-2xl bg-white shadow-card border border-slate-100">
+            <div class="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center mb-4">
+              <i data-lucide="file-x" class="w-6 h-6 text-brand-blue"></i>
+            </div>
+            <h3 class="font-semibold text-brand-blue">Непремиальный вид</h3>
+            <p class="mt-2 text-sm text-slate-600">Скриншоты из Word вместо красивых PDF — родители замечают</p>
+          </article>
+          <article class="reveal reveal-delay-3 card-hover p-6 rounded-2xl bg-white shadow-card border border-slate-100">
+            <div class="w-12 h-12 rounded-xl bg-purple-50 flex items-center justify-center mb-4">
+              <i data-lucide="eye-off" class="w-6 h-6 text-purple-500"></i>
+            </div>
+            <h3 class="font-semibold text-brand-blue">Страх неорганизованности</h3>
+            <p class="mt-2 text-sm text-slate-600">Стыдно, когда родитель спрашивает «а сколько мы должны?»</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Why us -->
+    <section id="why" class="py-16 lg:py-24">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center max-w-2xl mx-auto reveal">
+          <span class="text-brand-green font-semibold text-sm uppercase tracking-wide">Почему мы</span>
+          <h2 class="mt-2 text-2xl lg:text-4xl font-bold text-brand-blue">Всё, что нужно профессиональному репетитору</h2>
+        </div>
+        <div class="mt-14 grid md:grid-cols-2 gap-8">
+          <article class="reveal flex gap-5 p-6 lg:p-8 rounded-2xl bg-gradient-to-br from-blue-50 to-white border border-blue-100">
+            <div class="shrink-0 w-14 h-14 rounded-2xl bg-brand-blue flex items-center justify-center">
+              <i data-lucide="users" class="w-7 h-7 text-white"></i>
+            </div>
+            <div>
+              <h3 class="text-lg font-bold text-brand-blue">52 репетитора доверяют нам</h3>
+              <p class="mt-2 text-slate-600">52 репетитора уже сократили время на организационную рутину на 40% и перестали терять деньги из-за хаоса в записях.</p>
+            </div>
+          </article>
+          <article class="reveal reveal-delay-1 flex gap-5 p-6 lg:p-8 rounded-2xl bg-gradient-to-br from-emerald-50 to-white border border-emerald-100">
+            <div class="shrink-0 w-14 h-14 rounded-2xl bg-brand-green flex items-center justify-center">
+              <i data-lucide="brain" class="w-7 h-7 text-white"></i>
+            </div>
+            <div>
+              <h3 class="text-lg font-bold text-brand-blue">AI-ассистент для домашек</h3>
+              <p class="mt-2 text-slate-600">Персональный AI-ассистент подбирает персонализированные домашние задания под темы, уровень и пробелы каждого ученика — вы тратите 1 минуту вместо 30.</p>
+            </div>
+          </article>
+          <article class="reveal reveal-delay-2 flex gap-5 p-6 lg:p-8 rounded-2xl bg-white shadow-card border border-slate-100">
+            <div class="shrink-0 w-14 h-14 rounded-2xl bg-brand-blue/10 flex items-center justify-center">
+              <i data-lucide="credit-card" class="w-7 h-7 text-brand-blue"></i>
+            </div>
+            <div>
+              <h3 class="text-lg font-bold text-brand-blue">Учёт оплат на автопилоте</h3>
+              <p class="mt-2 text-slate-600">Автоматический учёт оплат и дебиторской задолженности: система сама напомнит, кто не заплатил, и покажет чистую прибыль за месяц.</p>
+            </div>
+          </article>
+          <article class="reveal reveal-delay-3 flex gap-5 p-6 lg:p-8 rounded-2xl bg-white shadow-card border border-slate-100">
+            <div class="shrink-0 w-14 h-14 rounded-2xl bg-brand-green/10 flex items-center justify-center">
+              <i data-lucide="smartphone" class="w-7 h-7 text-brand-green"></i>
+            </div>
+            <div>
+              <h3 class="text-lg font-bold text-brand-blue">Работайте откуда угодно</h3>
+              <p class="mt-2 text-slate-600">Доступ с телефона, планшета и компьютера без установки — начните за 2 минуты, а настроим всё вместе за 1 день.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section id="how" class="py-16 lg:py-24 bg-brand-blue text-white relative overflow-hidden">
+      <div class="absolute inset-0 opacity-10" style="background-image: radial-gradient(circle at 2px 2px, white 1px, transparent 0); background-size: 32px 32px;"></div>
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+        <div class="text-center max-w-2xl mx-auto reveal">
+          <h2 class="text-2xl lg:text-4xl font-bold">Как работает сервис</h2>
+          <p class="mt-4 text-blue-100">Три простых шага — от занятия до готового PDF за минуту</p>
+        </div>
+        <div class="mt-16 grid md:grid-cols-3 gap-8 lg:gap-12">
+          <div class="reveal text-center relative">
+            <div class="mx-auto w-20 h-20 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center border border-white/20">
+              <i data-lucide="clipboard-check" class="w-10 h-10 text-brand-green"></i>
+            </div>
+            <span class="inline-block mt-6 w-8 h-8 rounded-full bg-brand-green text-brand-blue font-bold text-sm leading-8">1</span>
+            <h3 class="mt-4 text-xl font-bold">Чек-лист после занятия</h3>
+            <p class="mt-3 text-blue-100 text-sm leading-relaxed">Провели занятие → заполнили чек-лист (темы, сложность, понимание ученика)</p>
+          </div>
+          <div class="reveal reveal-delay-1 text-center relative">
+            <div class="mx-auto w-20 h-20 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center border border-white/20">
+              <i data-lucide="cpu" class="w-10 h-10 text-brand-green"></i>
+            </div>
+            <span class="inline-block mt-6 w-8 h-8 rounded-full bg-brand-green text-brand-blue font-bold text-sm leading-8">2</span>
+            <h3 class="mt-4 text-xl font-bold">AI за 30 секунд</h3>
+            <p class="mt-3 text-blue-100 text-sm leading-relaxed">Нейросеть за 30 секунд генерирует персонализированное ДЗ в HTML</p>
+          </div>
+          <div class="reveal reveal-delay-2 text-center relative">
+            <div class="mx-auto w-20 h-20 rounded-2xl bg-white/10 backdrop-blur flex items-center justify-center border border-white/20">
+              <i data-lucide="send" class="w-10 h-10 text-brand-green"></i>
+            </div>
+            <span class="inline-block mt-6 w-8 h-8 rounded-full bg-brand-green text-brand-blue font-bold text-sm leading-8">3</span>
+            <h3 class="mt-4 text-xl font-bold">Готовый PDF</h3>
+            <p class="mt-3 text-blue-100 text-sm leading-relaxed">Вы скачиваете готовый PDF с домашним заданием или отправляете ученику</p>
+          </div>
+        </div>
+        <div class="hidden md:block absolute top-1/2 left-[20%] right-[20%] h-0.5 bg-white/20 -translate-y-8"></div>
+      </div>
+    </section>
+
+    <!-- Audience -->
+    <section id="audience" class="py-16 lg:py-24">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center max-w-2xl mx-auto reveal">
+          <h2 class="text-2xl lg:text-4xl font-bold text-brand-blue">Кому подойдёт</h2>
+          <p class="mt-4 text-slate-600">Независимо от формата — онлайн или офлайн, один ученик или двадцать</p>
+        </div>
+        <div class="mt-14 grid md:grid-cols-3 gap-8">
+          <article class="reveal card-hover text-center p-8 rounded-2xl bg-white shadow-card border border-slate-100">
+            <div class="mx-auto w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center">
+              <i data-lucide="user" class="w-8 h-8 text-brand-blue"></i>
+            </div>
+            <h3 class="mt-6 text-xl font-bold text-brand-blue">Репетитор-одиночка</h3>
+            <p class="mt-3 text-slate-600 text-sm">5–15 учеников, всё в голове и блокноте. Перестаньте терять 10–20% дохода и выглядите профессионально перед родителями.</p>
+          </article>
+          <article class="reveal reveal-delay-1 card-hover text-center p-8 rounded-2xl bg-white shadow-card border border-slate-100">
+            <div class="mx-auto w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center">
+              <i data-lucide="video" class="w-8 h-8 text-brand-green"></i>
+            </div>
+            <h3 class="mt-6 text-xl font-bold text-brand-blue">Онлайн-преподаватель</h3>
+            <p class="mt-3 text-slate-600 text-sm">Zoom, Telegram, десятки чатов. Единая CRM с телефона — учёт занятий и быстрая отправка PDF-домашек в один клик.</p>
+          </article>
+          <article class="reveal reveal-delay-2 card-hover text-center p-8 rounded-2xl bg-white shadow-card border border-slate-100">
+            <div class="mx-auto w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center">
+              <i data-lucide="award" class="w-8 h-8 text-amber-600"></i>
+            </div>
+            <h3 class="mt-6 text-xl font-bold text-brand-blue">Эксперт и премиум-сервис</h3>
+            <p class="mt-3 text-slate-600 text-sm">Высокий чек, высокие ожидания. Красивые персонализированные PDF подчеркнут ваш статус и сэкономят часы подготовки.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Reviews -->
+    <section id="reviews" class="py-16 lg:py-24 bg-slate-50">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center max-w-2xl mx-auto reveal">
+          <h2 class="text-2xl lg:text-4xl font-bold text-brand-blue">Отзывы репетиторов</h2>
+        </div>
+        <div class="mt-14 grid md:grid-cols-2 gap-8">
+          <blockquote class="reveal p-8 rounded-2xl bg-white shadow-card border border-slate-100">
+            <div class="flex gap-1 text-amber-400 mb-4">
+              <i data-lucide="star" class="w-5 h-5 fill-current"></i>
+              <i data-lucide="star" class="w-5 h-5 fill-current"></i>
+              <i data-lucide="star" class="w-5 h-5 fill-current"></i>
+              <i data-lucide="star" class="w-5 h-5 fill-current"></i>
+              <i data-lucide="star" class="w-5 h-5 fill-current"></i>
+            </div>
+            <p class="text-slate-700 leading-relaxed italic">«Наконец-то я вижу, кто и сколько мне должен. За первый месяц вернула 400&nbsp;Br пропущенных оплат»</p>
+            <footer class="mt-6 flex items-center gap-4">
+              <div class="w-12 h-12 rounded-full bg-brand-blue/10 flex items-center justify-center font-bold text-brand-blue">МК</div>
+              <div>
+                <cite class="not-italic font-semibold text-brand-blue">Марина К.</cite>
+                <p class="text-sm text-slate-500">Репетитор математики, Москва</p>
+              </div>
+            </footer>
+          </blockquote>
+          <blockquote class="reveal reveal-delay-1 p-8 rounded-2xl bg-white shadow-card border border-slate-100">
+            <div class="flex gap-1 text-amber-400 mb-4">
+              <i data-lucide="star" class="w-5 h-5 fill-current"></i>
+              <i data-lucide="star" class="w-5 h-5 fill-current"></i>
+              <i data-lucide="star" class="w-5 h-5 fill-current"></i>
+              <i data-lucide="star" class="w-5 h-5 fill-current"></i>
+              <i data-lucide="star" class="w-5 h-5 fill-current"></i>
+            </div>
+            <p class="text-slate-700 leading-relaxed italic">«Домашки, на которые уходил час, теперь делаю за минуту. Ученики в восторге, а я не выгораю»</p>
+            <footer class="mt-6 flex items-center gap-4">
+              <div class="w-12 h-12 rounded-full bg-brand-green/10 flex items-center justify-center font-bold text-brand-green">АС</div>
+              <div>
+                <cite class="not-italic font-semibold text-brand-blue">Алексей С.</cite>
+                <p class="text-sm text-slate-500">Онлайн-преподаватель английского</p>
+              </div>
+            </footer>
+          </blockquote>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="py-16 lg:py-24 bg-slate-50">
+      <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center reveal">
+          <h2 class="text-2xl lg:text-4xl font-bold text-brand-blue">Частые вопросы</h2>
+        </div>
+        <div class="mt-12 space-y-4">
+          <details class="reveal faq-item group bg-white rounded-2xl shadow-card border border-slate-100 overflow-hidden">
+            <summary class="flex items-center justify-between gap-4 p-6 cursor-pointer font-semibold text-brand-blue list-none">
+              Дорого — я же один репетитор
+              <i data-lucide="chevron-down" class="faq-chevron w-5 h-5 text-slate-400 shrink-0 transition-transform"></i>
+            </summary>
+            <div class="px-6 pb-6 text-slate-600 text-sm leading-relaxed border-t border-slate-50 pt-4">
+              Средний репетитор теряет 10–20% дохода из-за хаоса — это 800&nbsp;Br в месяц. RepetCRM окупается уже в первый месяц: одна возвращённая оплата покрывает подписку. Плюс вы экономите до 10 часов в неделю на домашках.
+            </div>
+          </details>
+          <details class="reveal reveal-delay-1 faq-item group bg-white rounded-2xl shadow-card border border-slate-100 overflow-hidden">
+            <summary class="flex items-center justify-between gap-4 p-6 cursor-pointer font-semibold text-brand-blue list-none">
+              Я привык к таблицам Excel
+              <i data-lucide="chevron-down" class="faq-chevron w-5 h-5 text-slate-400 shrink-0 transition-transform"></i>
+            </summary>
+            <div class="px-6 pb-6 text-slate-600 text-sm leading-relaxed border-t border-slate-50 pt-4">
+              Excel не напомнит о долге, не сгенерирует домашку и не откроется с телефона между уроками. Мы помогаем перенести данные за 1 день — вы не теряете привычную логику, но получаете автоматизацию, которой в таблице нет.
+            </div>
+          </details>
+          <details class="reveal reveal-delay-2 faq-item group bg-white rounded-2xl shadow-card border border-slate-100 overflow-hidden">
+            <summary class="flex items-center justify-between gap-4 p-6 cursor-pointer font-semibold text-brand-blue list-none">
+              Нейросеть не учтёт индивидуальность моих учеников
+              <i data-lucide="chevron-down" class="faq-chevron w-5 h-5 text-slate-400 shrink-0 transition-transform"></i>
+            </summary>
+            <div class="px-6 pb-6 text-slate-600 text-sm leading-relaxed border-t border-slate-50 pt-4">
+              AI не заменяет вас — он усиливает вашу экспертизу. Вы заполняете чек-лист: темы, сложность, понимание, пробелы. Нейросеть строит задание на ваших данных, а вы всегда можете отредактировать результат перед отправкой PDF ученику.
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-brand-blue text-white py-12 lg:py-16">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="grid md:grid-cols-2 gap-10">
+        <div>
+          <a href="#" class="flex items-center gap-2">
+            <span class="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center font-bold">R</span>
+            <span class="font-bold text-lg">Repet<span class="text-brand-green">CRM</span></span>
+          </a>
+          <p class="mt-4 text-blue-200 text-sm leading-relaxed">CRM для репетиторов с AI-генерацией домашних заданий. Порядок в финансах и премиальный сервис для ваших учеников.</p>
+        </div>
+        <div>
+          <h3 class="font-semibold mb-4">Контакты</h3>
+          <ul class="space-y-3 text-blue-100 text-sm">
+            <li class="flex items-center gap-2">
+              <i data-lucide="mail" class="w-4 h-4 text-brand-green"></i>
+              <a href="mailto:kulbakocnt@gmail.com" class="hover:text-white transition">kulbakocnt@gmail.com</a>
+            </li>
+            <li class="flex items-center gap-2">
+              <i data-lucide="message-circle" class="w-4 h-4 text-brand-green"></i>
+              <a href="https://t.me/diogen52" target="_blank" rel="noopener noreferrer" class="hover:text-white transition">Telegram: @diogen52</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <div class="mt-12 pt-8 border-t border-white/10 flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-blue-200">
+        <p>© 2026 RepetCRM. Все права защищены.</p>
+        <a id="privacy" href="#" class="hover:text-white transition underline-offset-2 hover:underline">Политика конфиденциальности</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="/landing/script.js"></script>
+</body>
+</html>

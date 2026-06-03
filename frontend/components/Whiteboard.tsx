@@ -1,0 +1,892 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api } from "@/lib/api";
+import {
+  ArrowsPointingOutIcon,
+  ArrowDownTrayIcon,
+  PencilIcon,
+  CursorArrowRaysIcon,
+  PhotoIcon,
+  XMarkIcon,
+  MinusIcon,
+  PlusIcon,
+  TrashIcon,
+} from "@heroicons/react/24/outline";
+
+type Point = { x: number; y: number };
+type Stroke = { id: string; color: string; width: number; points: Point[] };
+type TextItem = { id: string; x: number; y: number; text: string; color: string; size: number };
+type ImageItem = { id: string; x: number; y: number; w: number; h: number; url: string };
+type CursorPresence = { id: string; x: number; y: number; color: string; label: string; ts: number };
+
+export type BoardState = {
+  version: 1;
+  strokes: Stroke[];
+  texts: TextItem[];
+  images: ImageItem[];
+};
+
+const DEFAULT_STATE: BoardState = { version: 1, strokes: [], texts: [], images: [] };
+
+function normalizeState(s: BoardState | undefined): BoardState {
+  const anyS = (s || {}) as Partial<BoardState> & {
+    strokes?: unknown;
+    texts?: unknown;
+    images?: unknown;
+  };
+  return {
+    version: 1,
+    strokes: Array.isArray(anyS.strokes) ? (anyS.strokes as Stroke[]) : [],
+    texts: Array.isArray(anyS.texts)
+      ? (anyS.texts as Partial<TextItem>[]).map((t) => ({
+          id: typeof t.id === "string" ? t.id : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          x: typeof t.x === "number" ? t.x : 0,
+          y: typeof t.y === "number" ? t.y : 0,
+          text: typeof t.text === "string" ? t.text : "",
+          color: typeof t.color === "string" ? t.color : "#1E3A8A",
+          size: typeof t.size === "number" ? t.size : 24,
+        }))
+      : [],
+    images: Array.isArray(anyS.images)
+      ? (anyS.images as Partial<ImageItem>[]).map((im) => ({
+          id: typeof im.id === "string" ? im.id : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          x: typeof im.x === "number" ? im.x : 0,
+          y: typeof im.y === "number" ? im.y : 0,
+          w: typeof im.w === "number" ? im.w : 0.4,
+          h: typeof im.h === "number" ? im.h : 0.3,
+          url: typeof im.url === "string" ? im.url : "",
+        }))
+      : [],
+  };
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function canvasPoint(canvas: HTMLCanvasElement, clientX: number, clientY: number): Point {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left) / rect.width,
+    y: (clientY - rect.top) / rect.height,
+  };
+}
+
+type Camera = { x: number; y: number; zoom: number };
+
+function screenToWorld(p: Point, cam: Camera): Point {
+  return { x: cam.x + p.x / cam.zoom, y: cam.y + p.y / cam.zoom };
+}
+
+function worldToScreen(p: Point, cam: Camera): Point {
+  return { x: (p.x - cam.x) * cam.zoom, y: (p.y - cam.y) * cam.zoom };
+}
+
+export default function Whiteboard({
+  boardId,
+  shareToken,
+  authToken,
+  initialState,
+  readonly = false,
+  fullscreen = false,
+}: {
+  boardId: number;
+  shareToken?: string;
+  authToken?: string;
+  initialState?: BoardState;
+  readonly?: boolean;
+  fullscreen?: boolean;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [state, setState] = useState<BoardState>(normalizeState(initialState) || DEFAULT_STATE);
+  const [tool, setTool] = useState<"move" | "pen" | "erase" | "text" | "image">("pen");
+  const [color, setColor] = useState("#1E3A8A");
+  const [width, setWidth] = useState(3);
+  const [textSize, setTextSize] = useState(24);
+  const [status, setStatus] = useState<"offline" | "connecting" | "online">("offline");
+  const [cam, setCam] = useState<Camera>({ x: -0.5, y: -0.5, zoom: 1 });
+  const [panelCollapsed, setPanelCollapsed] = useState(true);
+
+  const wsUrl = useMemo(() => api.boards.wsUrl(boardId, shareToken, authToken), [boardId, shareToken, authToken]);
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const sendTimerRef = useRef<number | null>(null);
+  const pendingPointRef = useRef<{ id: string; p: Point } | null>(null);
+
+  const clientIdRef = useRef<string>("");
+  const clientColorRef = useRef<string>("");
+  const clientLabelRef = useRef<string>(shareToken ? "Гость" : "Вы");
+  const [cursors, setCursors] = useState<Record<string, CursorPresence>>({});
+  const cursorSendTimerRef = useRef<number | null>(null);
+  const lastCursorRef = useRef<Point | null>(null);
+
+  const sendOp = useCallback(
+    (op: Record<string, unknown>) => {
+      if (readonly) return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "op", op }));
+    },
+    [readonly]
+  );
+
+  useEffect(() => {
+    if (!clientIdRef.current) {
+      clientIdRef.current = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    }
+    if (!clientColorRef.current) {
+      const palette = ["#10B981", "#2563EB", "#F59E0B", "#EF4444", "#8B5CF6", "#0EA5E9"];
+      clientColorRef.current = palette[Math.floor(Math.random() * palette.length)];
+    }
+  }, []);
+
+  const scheduleStrokePoint = useCallback(
+    (id: string, p: Point) => {
+      if (readonly) return;
+      pendingPointRef.current = { id, p };
+      if (sendTimerRef.current) return;
+      sendTimerRef.current = window.setTimeout(() => {
+        const pending = pendingPointRef.current;
+        pendingPointRef.current = null;
+        sendTimerRef.current = null;
+        if (pending) sendOp({ op: "stroke_point", id: pending.id, p: pending.p });
+      }, 50);
+    },
+    [readonly, sendOp]
+  );
+
+  const redraw = useCallback(
+    async (s: BoardState) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      // HiDPI
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const w = Math.max(1, Math.floor(rect.width * dpr));
+      const h = Math.max(1, Math.floor(rect.height * dpr));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+
+      ctx.setTransform(w, 0, 0, h, 0, 0);
+      ctx.clearRect(0, 0, 1, 1);
+
+      ctx.save();
+      ctx.translate(-cam.x * cam.zoom, -cam.y * cam.zoom);
+      ctx.scale(cam.zoom, cam.zoom);
+
+      // grid (world units)
+      const step = 0.1; // 10% of viewport in world coords
+      const viewW = 1 / cam.zoom;
+      const viewH = 1 / cam.zoom;
+      const x0 = cam.x;
+      const y0 = cam.y;
+      const x1 = cam.x + viewW;
+      const y1 = cam.y + viewH;
+      const gx0 = Math.floor(x0 / step) * step;
+      const gy0 = Math.floor(y0 / step) * step;
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.06)";
+      ctx.lineWidth = (1 / w) / cam.zoom;
+      ctx.beginPath();
+      for (let x = gx0; x <= x1; x += step) {
+        ctx.moveTo(x, y0);
+        ctx.lineTo(x, y1);
+      }
+      for (let y = gy0; y <= y1; y += step) {
+        ctx.moveTo(x0, y);
+        ctx.lineTo(x1, y);
+      }
+      ctx.stroke();
+
+      // images
+      for (const img of s.images) {
+        try {
+          const image = new Image();
+          image.crossOrigin = "anonymous";
+          const url = img.url.startsWith("/api/")
+            ? `${window.location.origin}${img.url}`
+            : img.url.startsWith("/")
+              ? `${window.location.origin}${img.url}`
+              : img.url;
+          await new Promise<void>((resolve, reject) => {
+            image.onload = () => resolve();
+            image.onerror = () => reject(new Error("image load failed"));
+            image.src = url;
+          });
+          ctx.drawImage(image, img.x, img.y, img.w, img.h);
+        } catch {
+          // ignore
+        }
+      }
+
+      // strokes
+      for (const st of s.strokes) {
+        if (!st.points.length) continue;
+        ctx.strokeStyle = st.color;
+        ctx.lineWidth = (st.width / w) / cam.zoom;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        // smooth stroke with quadratic curves through midpoints
+        const pts = st.points;
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        if (pts.length === 2) {
+          ctx.lineTo(pts[1].x, pts[1].y);
+        } else {
+          for (let i = 1; i < pts.length - 1; i++) {
+            const midX = (pts[i].x + pts[i + 1].x) / 2;
+            const midY = (pts[i].y + pts[i + 1].y) / 2;
+            ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
+          }
+          const last = pts[pts.length - 1];
+          ctx.lineTo(last.x, last.y);
+        }
+        ctx.stroke();
+      }
+
+      // texts
+      for (const t of s.texts) {
+        ctx.fillStyle = t.color;
+        ctx.font = `${(t.size / w) / cam.zoom}px Inter, system-ui, sans-serif`;
+        ctx.textBaseline = "top";
+        ctx.fillText(t.text, t.x, t.y);
+      }
+
+      ctx.restore();
+    },
+    [cam]
+  );
+
+  useEffect(() => {
+    redraw(state);
+  }, [state, redraw]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStatus("connecting");
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => setStatus("online");
+    ws.onclose = () => setStatus("offline");
+    ws.onerror = () => setStatus("offline");
+
+    const applyOp = (
+      prev: BoardState,
+      op: {
+        op?: string;
+        id?: unknown;
+        color?: unknown;
+        width?: unknown;
+        p?: unknown;
+        item?: unknown;
+      }
+    ): BoardState => {
+      const cur = normalizeState(prev);
+      const t = op?.op;
+      if (t === "clear") return { ...DEFAULT_STATE };
+      if (t === "stroke_begin") {
+        if (typeof op.id !== "string") return cur;
+        const color = typeof op.color === "string" ? op.color : "#1E3A8A";
+        const width = typeof op.width === "number" ? op.width : 3;
+        const p = op.p as unknown;
+        if (!p || typeof p !== "object") return cur;
+        const pp = p as { x?: unknown; y?: unknown };
+        if (typeof pp.x !== "number" || typeof pp.y !== "number") return cur;
+        return { ...cur, strokes: [...cur.strokes, { id: op.id, color, width, points: [pp as unknown as Point] }] };
+      }
+      if (t === "stroke_point") {
+        if (typeof op.id !== "string") return cur;
+        const p = op.p as unknown;
+        if (!p || typeof p !== "object") return cur;
+        const pp = p as { x?: unknown; y?: unknown };
+        if (typeof pp.x !== "number" || typeof pp.y !== "number") return cur;
+        const strokes = cur.strokes.map((s) =>
+          s.id === op.id ? { ...s, points: [...s.points, pp as unknown as Point] } : s
+        );
+        return { ...cur, strokes };
+      }
+      if (t === "text_add") {
+        const it = op.item as unknown;
+        if (!it || typeof it !== "object") return cur;
+        const item = it as Partial<TextItem>;
+        if (
+          typeof item.x !== "number" ||
+          typeof item.y !== "number" ||
+          typeof item.text !== "string" ||
+          typeof item.color !== "string" ||
+          typeof item.size !== "number"
+        )
+          return cur;
+        return { ...cur, texts: [...cur.texts, item as TextItem] };
+      }
+      if (t === "image_add") {
+        const it = op.item as unknown;
+        if (!it || typeof it !== "object") return cur;
+        const item = it as Partial<ImageItem>;
+        if (
+          typeof item.x !== "number" ||
+          typeof item.y !== "number" ||
+          typeof item.w !== "number" ||
+          typeof item.h !== "number" ||
+          typeof item.url !== "string"
+        )
+          return cur;
+        return { ...cur, images: [...cur.images, item as ImageItem] };
+      }
+      return cur;
+    };
+
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg?.type === "state" && msg.state && typeof msg.state === "object") {
+          setState(normalizeState(msg.state));
+        } else if (msg?.type === "op" && msg.op) {
+          if (msg.op?.op === "cursor") {
+            const op = msg.op as {
+              op?: string;
+              id?: unknown;
+              x?: unknown;
+              y?: unknown;
+              color?: unknown;
+              label?: unknown;
+            };
+            if (
+              typeof op.id === "string" &&
+              typeof op.x === "number" &&
+              typeof op.y === "number" &&
+              typeof op.color === "string" &&
+              typeof op.label === "string"
+            ) {
+              const id = op.id;
+              if (id !== clientIdRef.current) {
+                setCursors((prev) => ({
+                  ...prev,
+                  [id]: { id, x: op.x, y: op.y, color: op.color, label: op.label, ts: Date.now() } as CursorPresence,
+                }));
+              }
+            }
+            return;
+          }
+          if (msg.op?.op === "cursor_leave") {
+            const id = msg.op?.id;
+            if (typeof id === "string") {
+              setCursors((prev) => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+              });
+            }
+            return;
+          }
+          setState((prev) => applyOp(prev, msg.op));
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    const clientId = clientIdRef.current;
+    return () => {
+      try {
+        sendOp({ op: "cursor_leave", id: clientId });
+        ws.close();
+      } catch {
+        // ignore
+      }
+      wsRef.current = null;
+    };
+  }, [wsUrl, sendOp]);
+
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      const now = Date.now();
+      setCursors((prev) => {
+        const next: Record<string, CursorPresence> = {};
+        for (const [id, c] of Object.entries(prev)) {
+          if (now - c.ts < 8000) next[id] = c;
+        }
+        return next;
+      });
+    }, 2000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  // Drawing
+  const drawingRef = useRef<{ active: boolean; id: string | null }>({ active: false, id: null });
+  const panRef = useRef<{ active: boolean; start?: Point; cam0?: Camera }>({ active: false });
+  const dragImageRef = useRef<{ active: boolean; id?: string; grab?: Point }>({ active: false });
+  const [textDraft, setTextDraft] = useState<{ active: boolean; x: number; y: number; value: string }>({
+    active: false,
+    x: 0,
+    y: 0,
+    value: "",
+  });
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (readonly) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      canvas.setPointerCapture(e.pointerId);
+
+      const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
+      const p = screenToWorld(pScreen, cam);
+
+      const isPan = e.button === 1 || (e.button === 0 && e.shiftKey) || tool === "move";
+      if (isPan) {
+        panRef.current = { active: true, start: pScreen, cam0: cam };
+        return;
+      }
+      if (tool === "pen") {
+        const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        drawingRef.current.active = true;
+        drawingRef.current.id = id;
+        // apply locally
+        setState((prev) => ({
+          ...normalizeState(prev),
+          strokes: [...normalizeState(prev).strokes, { id, color, width, points: [p] }],
+        }));
+        // send op
+        sendOp({ op: "stroke_begin", id, color, width, p });
+      } else if (tool === "text") {
+        setTextDraft({ active: true, x: p.x, y: p.y, value: "" });
+        window.setTimeout(() => {
+          const el = document.getElementById("wb-text-input") as HTMLInputElement | null;
+          el?.focus();
+        }, 0);
+      } else if (tool === "image") {
+        const cur = normalizeState(state);
+        const hit = [...cur.images]
+          .reverse()
+          .find((im) => p.x >= im.x && p.x <= im.x + im.w && p.y >= im.y && p.y <= im.y + im.h);
+        if (hit) {
+          dragImageRef.current = { active: true, id: hit.id, grab: { x: p.x - hit.x, y: p.y - hit.y } };
+        }
+      }
+    },
+    [readonly, tool, color, width, textSize, sendOp, cam, state]
+  );
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (readonly) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
+      const p = screenToWorld(pScreen, cam);
+
+      // presence (throttled)
+      lastCursorRef.current = pScreen;
+      if (!cursorSendTimerRef.current) {
+        cursorSendTimerRef.current = window.setTimeout(() => {
+          cursorSendTimerRef.current = null;
+          const cp = lastCursorRef.current;
+          if (!cp) return;
+          sendOp({
+            op: "cursor",
+            id: clientIdRef.current,
+            x: cp.x,
+            y: cp.y,
+            color: clientColorRef.current,
+            label: clientLabelRef.current,
+          });
+        }, 60);
+      }
+
+      if (panRef.current.active && panRef.current.start && panRef.current.cam0) {
+        const dx = pScreen.x - panRef.current.start.x;
+        const dy = pScreen.y - panRef.current.start.y;
+        setCam({
+          ...panRef.current.cam0,
+          x: panRef.current.cam0.x - dx / panRef.current.cam0.zoom,
+          y: panRef.current.cam0.y - dy / panRef.current.cam0.zoom,
+        });
+        return;
+      }
+
+      if (dragImageRef.current.active && dragImageRef.current.id && dragImageRef.current.grab) {
+        const id = dragImageRef.current.id;
+        const grab = dragImageRef.current.grab;
+        const nx = p.x - grab.x;
+        const ny = p.y - grab.y;
+        setState((prev) => {
+          const cur = normalizeState(prev);
+          const images = cur.images.map((im) => (im.id === id ? { ...im, x: nx, y: ny } : im));
+          return { ...cur, images };
+        });
+        sendOp({ op: "image_move", id, x: nx, y: ny });
+        return;
+      }
+
+      if (tool === "erase") {
+        // erase by radius (world coords)
+        sendOp({ op: "erase", p, r: 0.04 / cam.zoom });
+        setState((prev) => {
+          const cur = normalizeState(prev);
+          const r = 0.04 / cam.zoom;
+          const r2 = r * r;
+          const strokes = cur.strokes.filter((st) => !st.points.some((pt) => (pt.x - p.x) ** 2 + (pt.y - p.y) ** 2 <= r2));
+          return { ...cur, strokes };
+        });
+        return;
+      }
+
+      if (tool !== "pen") return;
+      if (!drawingRef.current.active || !drawingRef.current.id) return;
+      const id = drawingRef.current.id;
+      setState((prev) => {
+        const cur = normalizeState(prev);
+        const strokes = cur.strokes.map((s) => (s.id === id ? { ...s, points: [...s.points, p] } : s));
+        return { ...cur, strokes };
+      });
+      scheduleStrokePoint(id, p);
+    },
+    [readonly, tool, scheduleStrokePoint, sendOp, cam]
+  );
+
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (canvas) canvas.releasePointerCapture(e.pointerId);
+      drawingRef.current.active = false;
+      drawingRef.current.id = null;
+      panRef.current.active = false;
+      dragImageRef.current.active = false;
+    },
+    []
+  );
+
+  const onUploadImage = useCallback(
+    async (file: File) => {
+      if (!shareToken) {
+        alert("Для загрузки картинки нужен share-токен доски.");
+        return;
+      }
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(api.boards.uploadAssetUrl(boardId, shareToken), { method: "POST", body: form });
+      if (!res.ok) throw new Error("upload failed");
+      const data = await res.json();
+      const url = data.url as string;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      // place image in the center
+      // place image in the viewport center (world coords)
+      const rect = canvas.getBoundingClientRect();
+      const w = clamp(0.4 / cam.zoom, 0.1 / cam.zoom, 0.9 / cam.zoom);
+      const h = (w * rect.width) / rect.height;
+      const x = cam.x + (0.5 / cam.zoom) - w / 2;
+      const y = cam.y + (0.5 / cam.zoom) - h / 2;
+      const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+      setState((prev) => {
+        const cur = normalizeState(prev);
+        const item = { id, x, y, w, h, url };
+        return { ...cur, images: [...cur.images, item] };
+      });
+      sendOp({ op: "image_add", item: { id, x, y, w, h, url } });
+    },
+    [boardId, shareToken, sendOp, cam]
+  );
+
+  // Global paste support (Ctrl+V) without switching tools.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      // Ignore if typing into an input/textarea/contenteditable
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName?.toLowerCase();
+        if (tag === "input" || tag === "textarea" || target.isContentEditable) return;
+      }
+      const item = e.clipboardData?.items?.[0];
+      if (!item) return;
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          onUploadImage(file).catch(() => {});
+        }
+      }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [onUploadImage]);
+
+  return (
+    <div className={fullscreen ? "w-full h-full" : "space-y-3"}>
+      <div
+        ref={wrapRef}
+        className={fullscreen ? "w-full h-full bg-white overflow-hidden relative" : "rounded-2xl border bg-white overflow-hidden relative"}
+        tabIndex={0}
+        onWheel={(e) => {
+          // zoom with wheel (as in Miro). Pan is Shift+drag or Move tool.
+          e.preventDefault();
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
+          const before = screenToWorld(pScreen, cam);
+          const nextZoom = clamp(cam.zoom * (e.deltaY > 0 ? 0.9 : 1.1), 0.25, 6);
+          const after = screenToWorld(pScreen, { ...cam, zoom: nextZoom });
+          setCam({
+            ...cam,
+            zoom: nextZoom,
+            x: cam.x + (before.x - after.x),
+            y: cam.y + (before.y - after.y),
+          });
+        }}
+        onPaste={(e) => {
+          wrapRef.current?.focus();
+          const item = e.clipboardData?.items?.[0];
+          if (!item) return;
+          if (item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) {
+              e.preventDefault();
+              onUploadImage(file).catch(() => alert("Не удалось вставить картинку"));
+            }
+          }
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          const f = e.dataTransfer.files?.[0];
+          if (f && f.type.startsWith("image/")) onUploadImage(f).catch(() => alert("Не удалось загрузить картинку"));
+        }}
+      >
+        {textDraft.active && (
+          <input
+            id="wb-text-input"
+            value={textDraft.value}
+            onChange={(e) => setTextDraft((p) => ({ ...p, value: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setTextDraft({ active: false, x: 0, y: 0, value: "" });
+              if (e.key === "Enter") {
+                const v = textDraft.value.trim();
+                if (v) {
+                  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+                  const item = { id, x: textDraft.x, y: textDraft.y, text: v, color, size: textSize };
+                  setState((prev) => ({ ...normalizeState(prev), texts: [...normalizeState(prev).texts, item] }));
+                  sendOp({ op: "text_add", item });
+                }
+                setTextDraft({ active: false, x: 0, y: 0, value: "" });
+              }
+            }}
+            onBlur={() => setTextDraft({ active: false, x: 0, y: 0, value: "" })}
+            className="absolute z-10 px-2 py-1 rounded-md border bg-white shadow-sm"
+            style={{
+              left: `${worldToScreen({ x: textDraft.x, y: textDraft.y }, cam).x * 100}%`,
+              top: `${worldToScreen({ x: textDraft.x, y: textDraft.y }, cam).y * 100}%`,
+              transform: "translate(0, 0)",
+              width: "min(70%, 520px)",
+            }}
+            placeholder="Введите текст…"
+          />
+        )}
+        <canvas
+          ref={canvasRef}
+          className={fullscreen ? "w-full h-full touch-none" : "w-full h-[70vh] touch-none"}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onPointerLeave={() => sendOp({ op: "cursor_leave", id: clientIdRef.current })}
+        />
+        <div className="absolute inset-0 pointer-events-none">
+          {Object.values(cursors).map((c) => (
+            <div
+              key={c.id}
+              className="absolute"
+              style={{
+                left: `${c.x * 100}%`,
+                top: `${c.y * 100}%`,
+                transform: "translate(6px, 6px)",
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <div
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 9999,
+                    background: c.color,
+                    boxShadow: "0 0 0 2px rgba(255,255,255,0.9)",
+                  }}
+                />
+                <div
+                  className="text-[11px] px-2 py-0.5 rounded-full"
+                  style={{
+                    background: "rgba(15, 23, 42, 0.85)",
+                    color: "white",
+                  }}
+                >
+                  {c.label}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Right tools panel */}
+        <div className="absolute top-3 right-3 z-20 pointer-events-auto">
+          <div className={`bg-white/95 backdrop-blur border border-slate-200 shadow-lg rounded-2xl overflow-hidden ${panelCollapsed ? "w-12" : "w-72"}`}>
+            <div className="p-2 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className={`w-2.5 h-2.5 rounded-full ${status === "online" ? "bg-emerald-500" : status === "connecting" ? "bg-amber-400" : "bg-slate-300"}`} />
+                {!panelCollapsed && <span className="text-xs text-slate-600">{status === "online" ? "Онлайн" : status === "connecting" ? "Подключение…" : "Оффлайн"}</span>}
+              </div>
+              <button
+                className="p-1.5 rounded-lg hover:bg-slate-100"
+                onClick={() => setPanelCollapsed((v) => !v)}
+                title={panelCollapsed ? "Развернуть" : "Свернуть"}
+              >
+                {panelCollapsed ? <ArrowsPointingOutIcon className="w-5 h-5 text-slate-600" /> : <XMarkIcon className="w-5 h-5 text-slate-600" />}
+              </button>
+            </div>
+
+            <div className="p-2 pt-0 space-y-2">
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  className={`flex items-center gap-2 px-2 py-2 rounded-xl border ${tool === "move" ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}
+                  onClick={() => setTool("move")}
+                  disabled={readonly}
+                  title="Перемещение (или Shift)"
+                >
+                  <CursorArrowRaysIcon className="w-5 h-5" />
+                  {!panelCollapsed && <span className="text-sm">Перемещение</span>}
+                </button>
+                <button
+                  className={`flex items-center gap-2 px-2 py-2 rounded-xl border ${tool === "pen" ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}
+                  onClick={() => setTool("pen")}
+                  disabled={readonly}
+                  title="Рисование"
+                >
+                  <PencilIcon className="w-5 h-5" />
+                  {!panelCollapsed && <span className="text-sm">Рисование</span>}
+                </button>
+                <button
+                  className={`flex items-center gap-2 px-2 py-2 rounded-xl border ${tool === "erase" ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}
+                  onClick={() => setTool("erase")}
+                  disabled={readonly}
+                  title="Стирание"
+                >
+                  <TrashIcon className="w-5 h-5" />
+                  {!panelCollapsed && <span className="text-sm">Стереть</span>}
+                </button>
+                <button
+                  className={`flex items-center gap-2 px-2 py-2 rounded-xl border ${tool === "text" ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}
+                  onClick={() => setTool("text")}
+                  disabled={readonly}
+                  title="Текст"
+                >
+                  <span className="w-5 h-5 flex items-center justify-center text-base font-bold">T</span>
+                  {!panelCollapsed && <span className="text-sm">Текст</span>}
+                </button>
+                <button
+                  className={`flex items-center gap-2 px-2 py-2 rounded-xl border ${tool === "image" ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`}
+                  onClick={() => setTool("image")}
+                  disabled={readonly}
+                  title="Картинка (перемещение)"
+                >
+                  <PhotoIcon className="w-5 h-5" />
+                  {!panelCollapsed && <span className="text-sm">Картинки</span>}
+                </button>
+              </div>
+
+              {!panelCollapsed && (
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-500">Цвет</span>
+                    <input
+                      type="color"
+                      value={color}
+                      onChange={(e) => setColor(e.target.value)}
+                      className="w-10 h-8 p-1 border rounded-lg"
+                      disabled={readonly}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-500">Толщина</span>
+                    <input
+                      type="range"
+                      min={1}
+                      max={14}
+                      value={width}
+                      onChange={(e) => setWidth(Number(e.target.value))}
+                      disabled={readonly}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-500">Текст</span>
+                    <input
+                      type="range"
+                      min={12}
+                      max={72}
+                      value={textSize}
+                      onChange={(e) => setTextSize(Number(e.target.value))}
+                      disabled={readonly}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-500">Зум</span>
+                    <div className="flex items-center gap-1">
+                      <button className="p-1.5 rounded-lg border hover:bg-slate-50" onClick={() => setCam((c) => ({ ...c, zoom: clamp(c.zoom / 1.1, 0.25, 6) }))} title="Отдалить">
+                        <MinusIcon className="w-4 h-4" />
+                      </button>
+                      <span className="text-xs w-12 text-center">{Math.round(cam.zoom * 100)}%</span>
+                      <button className="p-1.5 rounded-lg border hover:bg-slate-50" onClick={() => setCam((c) => ({ ...c, zoom: clamp(c.zoom * 1.1, 0.25, 6) }))} title="Приблизить">
+                        <PlusIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  {!readonly && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <label className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border bg-white cursor-pointer text-sm hover:bg-slate-50">
+                        <ArrowDownTrayIcon className="w-5 h-5" />
+                        Загрузить
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) onUploadImage(f).catch(() => alert("Не удалось загрузить картинку"));
+                            e.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                      <button
+                        className="px-3 py-2 rounded-xl border bg-white text-sm hover:bg-red-50 hover:text-red-600"
+                        onClick={() => {
+                          if (!confirm("Очистить доску?")) return;
+                          setState({ ...DEFAULT_STATE });
+                          sendOp({ op: "clear" });
+                        }}
+                      >
+                        Очистить
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-slate-500 leading-snug">
+                    Пан: <b>Shift+ЛКМ</b> или <b>колесо</b>. Зум: <b>Ctrl+колесо</b>. Вставка картинки: <b>Ctrl+V</b>.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+

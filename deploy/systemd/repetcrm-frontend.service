@@ -1,0 +1,17 @@
+[Unit]
+Description=RepetCRM Frontend (Next.js)
+After=network.target repetcrm-backend.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/repetcrm/frontend
+Environment=NEXT_PUBLIC_API_URL=https://api.example.com
+Environment=NODE_ENV=production
+Environment=PORT=3000
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

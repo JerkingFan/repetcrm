@@ -1,0 +1,51 @@
+# Пример nginx: https://example.com → frontend, /api → backend
+# Положить в /etc/nginx/sites-available/repetcrm и сделать symlink в sites-enabled
+
+upstream repetcrm_frontend {
+    server 127.0.0.1:3000;
+}
+
+upstream repetcrm_backend {
+    server 127.0.0.1:8000;
+}
+
+server {
+    listen 80;
+    server_name example.com www.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name example.com www.example.com;
+
+    # ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+
+    client_max_body_size 20M;
+
+    location /api/ {
+        proxy_pass http://repetcrm_backend/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 180s;
+    }
+
+    location / {
+        proxy_pass http://repetcrm_frontend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+
+# Тогда в .env.production:
+# NEXT_PUBLIC_API_URL=https://example.com/api
+# CORS_ORIGINS=https://example.com
