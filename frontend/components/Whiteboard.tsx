@@ -335,7 +335,7 @@ export default function Whiteboard({
   const clientLabelRef = useRef<string>(shareToken ? "Гость" : "Вы");
   const [cursors, setCursors] = useState<Record<string, CursorPresence>>({});
   const cursorSendTimerRef = useRef<number | null>(null);
-  const lastCursorRef = useRef<Point | null>(null);
+  const lastCursorWorldRef = useRef<Point | null>(null);
 
   const sendOp = useCallback(
     (op: Record<string, unknown>) => {
@@ -769,7 +769,7 @@ export default function Whiteboard({
       canvas.setPointerCapture(e.pointerId);
 
       const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
-      const p = screenToWorld(pScreen, cam);
+      const p = screenToWorld(pScreen, camRef.current);
       const hit = findImageAt(normalizeState(state).images, p);
 
       if (tool === "move" || tool === "image") {
@@ -794,7 +794,7 @@ export default function Whiteboard({
 
       const isPan = e.button === 1 || (e.button === 0 && e.shiftKey) || tool === "move";
       if (isPan) {
-        panRef.current = { active: true, start: pScreen, cam0: cam };
+        panRef.current = { active: true, start: pScreen, cam0: camRef.current };
         return;
       }
       if (tool === "erase") {
@@ -820,7 +820,7 @@ export default function Whiteboard({
         }, 0);
       }
     },
-    [readonly, tool, color, width, sendOp, cam, state, pushHistory, eraseAt]
+    [readonly, tool, color, width, sendOp, state, pushHistory, eraseAt]
   );
 
   const onPointerMove = useCallback(
@@ -829,14 +829,14 @@ export default function Whiteboard({
       const canvas = canvasRef.current;
       if (!canvas) return;
       const pScreen = canvasPoint(canvas, e.clientX, e.clientY);
-      const p = screenToWorld(pScreen, cam);
+      const p = screenToWorld(pScreen, camRef.current);
 
-      // presence (throttled)
-      lastCursorRef.current = pScreen;
+      // presence (throttled) — world coords so remote clients align after pan/zoom
+      lastCursorWorldRef.current = p;
       if (!cursorSendTimerRef.current) {
         cursorSendTimerRef.current = window.setTimeout(() => {
           cursorSendTimerRef.current = null;
-          const cp = lastCursorRef.current;
+          const cp = lastCursorWorldRef.current;
           if (!cp) return;
           sendOp({
             op: "cursor",
@@ -893,7 +893,7 @@ export default function Whiteboard({
       });
       scheduleStrokePoint(id, p);
     },
-    [readonly, tool, scheduleStrokePoint, sendOp, cam, pushHistory, updateImageInState, eraseAt]
+    [readonly, tool, scheduleStrokePoint, sendOp, pushHistory, updateImageInState, eraseAt]
   );
 
   const finishStroke = useCallback(
@@ -1158,8 +1158,8 @@ export default function Whiteboard({
         ref={wrapRef}
         className={
           fullscreen
-            ? "w-full h-full bg-white overflow-hidden relative pt-14"
-            : "rounded-2xl border bg-white overflow-hidden relative pt-14"
+            ? "w-full h-full bg-white overflow-hidden relative"
+            : "rounded-2xl border bg-white overflow-hidden relative"
         }
         tabIndex={0}
         onMouseEnter={() => {
@@ -1179,82 +1179,85 @@ export default function Whiteboard({
             onUploadImage(f).catch(() => toast("Не удалось загрузить картинку", "error"));
         }}
       >
-        {textDraft.active && (
-          <input
-            id="wb-text-input"
-            value={textDraft.value}
-            onChange={(e) => setTextDraft((p) => ({ ...p, value: e.target.value }))}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setTextDraft({ active: false, x: 0, y: 0, value: "" });
-              if (e.key === "Enter") {
-                const v = textDraft.value.trim();
-                if (v) {
-                  pushHistory();
-                  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-                  const item = { id, x: textDraft.x, y: textDraft.y, text: v, color, size: textSize };
-                  setState((prev) => ({ ...normalizeState(prev), texts: [...normalizeState(prev).texts, item] }));
-                  sendOp({ op: "text_add", item });
-                }
-                setTextDraft({ active: false, x: 0, y: 0, value: "" });
-              }
-            }}
-            onBlur={() => setTextDraft({ active: false, x: 0, y: 0, value: "" })}
-            className="absolute z-10 px-2 py-1 rounded-md border bg-white shadow-sm"
-            style={{
-              left: `${worldToScreen({ x: textDraft.x, y: textDraft.y }, cam).x * 100}%`,
-              top: `${worldToScreen({ x: textDraft.x, y: textDraft.y }, cam).y * 100}%`,
-              transform: "translate(0, 0)",
-              width: "min(70%, 520px)",
-            }}
-            placeholder="Введите текст…"
+        <div className={fullscreen ? "absolute inset-0" : "relative w-full h-[70vh]"}>
+          <canvas
+            ref={canvasRef}
+            className="w-full h-full touch-none"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            onPointerLeave={() => sendOp({ op: "cursor_leave", id: clientIdRef.current })}
           />
-        )}
-        <canvas
-          ref={canvasRef}
-          className={fullscreen ? "w-full h-full touch-none" : "w-full h-[70vh] touch-none"}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-          onPointerLeave={() => sendOp({ op: "cursor_leave", id: clientIdRef.current })}
-        />
-        {selectedImage && !readonly && (
-          <div className="absolute z-[15] pointer-events-none" style={imageScreenStyle(selectedImage, cam)}>
-            <div className="absolute inset-0 border-2 border-blue-500 rounded-sm" />
-            {(tool === "image" || tool === "move") && (
-              <div
-                className="absolute inset-0 cursor-move pointer-events-auto"
-                onPointerDown={handleOverlayMoveStart}
-                onPointerUp={() => finishImageEdit()}
-                onPointerCancel={() => finishImageEdit()}
-              />
-            )}
-            {(["nw", "ne", "sw", "se"] as ResizeCorner[]).map((corner) => (
-              <div
-                key={corner}
-                className="absolute w-3.5 h-3.5 bg-white border-2 border-blue-500 rounded-sm pointer-events-auto z-20 shadow"
-                style={{
-                  left: corner.includes("w") ? -7 : undefined,
-                  right: corner.includes("e") ? -7 : undefined,
-                  top: corner.includes("n") ? -7 : undefined,
-                  bottom: corner.includes("s") ? -7 : undefined,
-                  cursor: corner === "nw" || corner === "se" ? "nwse-resize" : "nesw-resize",
-                }}
-                onPointerDown={(e) => handleImageResizeStart(e, corner)}
-                onPointerUp={() => finishImageEdit()}
-                onPointerCancel={() => finishImageEdit()}
-              />
-            ))}
-          </div>
-        )}
-        <div className="absolute inset-0 pointer-events-none">
-          {Object.values(cursors).map((c) => (
+          {textDraft.active && (
+            <input
+              id="wb-text-input"
+              value={textDraft.value}
+              onChange={(e) => setTextDraft((p) => ({ ...p, value: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setTextDraft({ active: false, x: 0, y: 0, value: "" });
+                if (e.key === "Enter") {
+                  const v = textDraft.value.trim();
+                  if (v) {
+                    pushHistory();
+                    const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+                    const item = { id, x: textDraft.x, y: textDraft.y, text: v, color, size: textSize };
+                    setState((prev) => ({ ...normalizeState(prev), texts: [...normalizeState(prev).texts, item] }));
+                    sendOp({ op: "text_add", item });
+                  }
+                  setTextDraft({ active: false, x: 0, y: 0, value: "" });
+                }
+              }}
+              onBlur={() => setTextDraft({ active: false, x: 0, y: 0, value: "" })}
+              className="absolute z-10 px-2 py-1 rounded-md border bg-white shadow-sm"
+              style={{
+                left: `${worldToScreen({ x: textDraft.x, y: textDraft.y }, cam).x * 100}%`,
+                top: `${worldToScreen({ x: textDraft.x, y: textDraft.y }, cam).y * 100}%`,
+                transform: "translate(0, 0)",
+                width: "min(70%, 520px)",
+              }}
+              placeholder="Введите текст…"
+            />
+          )}
+          {selectedImage && !readonly && (
+            <div className="absolute z-[15] pointer-events-none" style={imageScreenStyle(selectedImage, cam)}>
+              <div className="absolute inset-0 border-2 border-blue-500 rounded-sm" />
+              {(tool === "image" || tool === "move") && (
+                <div
+                  className="absolute inset-0 cursor-move pointer-events-auto"
+                  onPointerDown={handleOverlayMoveStart}
+                  onPointerUp={() => finishImageEdit()}
+                  onPointerCancel={() => finishImageEdit()}
+                />
+              )}
+              {(["nw", "ne", "sw", "se"] as ResizeCorner[]).map((corner) => (
+                <div
+                  key={corner}
+                  className="absolute w-3.5 h-3.5 bg-white border-2 border-blue-500 rounded-sm pointer-events-auto z-20 shadow"
+                  style={{
+                    left: corner.includes("w") ? -7 : undefined,
+                    right: corner.includes("e") ? -7 : undefined,
+                    top: corner.includes("n") ? -7 : undefined,
+                    bottom: corner.includes("s") ? -7 : undefined,
+                    cursor: corner === "nw" || corner === "se" ? "nwse-resize" : "nesw-resize",
+                  }}
+                  onPointerDown={(e) => handleImageResizeStart(e, corner)}
+                  onPointerUp={() => finishImageEdit()}
+                  onPointerCancel={() => finishImageEdit()}
+                />
+              ))}
+            </div>
+          )}
+          <div className="absolute inset-0 pointer-events-none">
+            {Object.values(cursors).map((c) => {
+              const sp = worldToScreen({ x: c.x, y: c.y }, cam);
+              return (
             <div
               key={c.id}
               className="absolute"
               style={{
-                left: `${c.x * 100}%`,
-                top: `${c.y * 100}%`,
+                left: `${sp.x * 100}%`,
+                top: `${sp.y * 100}%`,
                 transform: "translate(6px, 6px)",
               }}
             >
@@ -1279,7 +1282,9 @@ export default function Whiteboard({
                 </div>
               </div>
             </div>
-          ))}
+              );
+            })}
+          </div>
         </div>
 
         {/* Top horizontal toolbar */}
