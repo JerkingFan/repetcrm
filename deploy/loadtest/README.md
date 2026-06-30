@@ -16,7 +16,7 @@ cp deploy/loadtest/.env.loadtest.example deploy/loadtest/.env.loadtest
 
 chmod +x deploy/scripts/loadtest.sh
 
-# smoke (~15 сек) — после каждого деплоя
+# smoke (~5 сек) — после каждого деплоя
 ./deploy/scripts/loadtest.sh smoke
 
 # основной сценарий: 50 репетиторов, 2 мин steady state
@@ -30,11 +30,11 @@ SCENARIO=stress ./deploy/scripts/loadtest.sh
 
 | Сценарий | VUs | Длительность | Эндпоинты |
 |----------|-----|--------------|-----------|
-| `smoke` | 1 | 15s | `/health`, login, `/dashboard` |
+| `smoke` | 1 | 1 iteration | `/health`, login, `/dashboard` |
 | `tutor-daily` | 50 (default) | ~3 min | dashboard, students, lessons, student detail, `/auth/me` |
 | `stress` | 25→100 | ~5 min | dashboard, students, lessons (read-heavy) |
 
-Seed создаёт аккаунты `tutor-001@loadtest.local` … `tutor-050@loadtest.local` с паролем из `LOADTEST_PASSWORD`.
+Seed создаёт аккаунты `tutor-001@loadtest.example.com` … `tutor-050@loadtest.example.com` с паролем из `LOADTEST_PASSWORD`.
 
 ## Критерии «зелёного» прогона (tutor-daily)
 
@@ -59,7 +59,7 @@ Seed создаёт аккаунты `tutor-001@loadtest.local` … `tutor-050@l
 ./deploy/scripts/loadtest.sh --cleanup
 ```
 
-Удаляет пользователей `*@loadtest.local` (каскадом — их учеников и уроки).
+Удаляет пользователей `*@loadtest.example.com` и legacy `*@loadtest.local` (каскадом — их учеников и уроки).
 
 ## Локально (Windows / dev)
 

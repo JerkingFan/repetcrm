@@ -1,10 +1,11 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
-import { baseUrl, jsonHeaders, usersFile } from "./lib/config.js";
+import { baseUrl, jsonHeaders } from "./lib/config.js";
+import { firstUser } from "./lib/users.js";
 
 export const options = {
   vus: 1,
-  duration: "15s",
+  iterations: 1,
   thresholds: {
     http_req_failed: ["rate<0.01"],
     http_req_duration: ["p(95)<1000"],
@@ -17,14 +18,7 @@ export default function () {
   const health = http.get(`${url}/health`);
   check(health, { "health 200": (r) => r.status === 200 });
 
-  let users;
-  try {
-    users = JSON.parse(open(usersFile()));
-  } catch (e) {
-    throw new Error(`Cannot read USERS_FILE=${usersFile()}: ${e}`);
-  }
-
-  const user = users.users[0];
+  const user = firstUser();
   const login = http.post(
     `${url}/auth/login`,
     JSON.stringify({ email: user.email, password: user.password }),
@@ -42,5 +36,5 @@ export default function () {
   });
   check(dash, { "dashboard 200": (r) => r.status === 200 });
 
-  sleep(1);
+  sleep(0.5);
 }

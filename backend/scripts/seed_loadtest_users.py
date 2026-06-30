@@ -21,12 +21,14 @@ _BACKEND = Path(__file__).resolve().parent.parent
 if str(_BACKEND) not in sys.path:
     sys.path.insert(0, str(_BACKEND))
 
+from sqlalchemy import or_
+
 from app.auth import get_password_hash  # noqa: E402
 from app.database import SessionLocal, init_db  # noqa: E402
 from app.models import User, Student, Lesson  # noqa: E402
 
 
-LOADTEST_EMAIL_DOMAIN = "loadtest.local"
+LOADTEST_EMAIL_DOMAIN = "loadtest.example.com"
 DEFAULT_PASSWORD = "LoadTest123!"
 
 
@@ -135,12 +137,19 @@ def cleanup(*, count: int) -> int:
     db = SessionLocal()
     deleted = 0
     try:
-        for i in range(1, count + 1):
-            email = _email(i)
-            user = db.query(User).filter(User.email == email).first()
-            if user:
-                db.delete(user)
-                deleted += 1
+        users = (
+            db.query(User)
+            .filter(
+                or_(
+                    User.email.like(f"%@{LOADTEST_EMAIL_DOMAIN}"),
+                    User.email.like("%@loadtest.local"),
+                )
+            )
+            .all()
+        )
+        for user in users:
+            db.delete(user)
+            deleted += 1
         db.commit()
     finally:
         db.close()

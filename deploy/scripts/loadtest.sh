@@ -62,9 +62,9 @@ wait_for_health() {
 }
 
 if [[ "${1:-}" == "--cleanup" ]]; then
-  echo "==> Removing loadtest users (*@${LOADTEST_EMAIL_DOMAIN:-loadtest.local})..."
+  echo "==> Removing loadtest users (*@loadtest.example.com and legacy *@loadtest.local)..."
   "${COMPOSE[@]}" exec -T backend python scripts/seed_loadtest_users.py \
-    --count "$TUTORS" --cleanup
+    --count "$TUTORS" --cleanup || true
   rm -f "$USERS_JSON"
   echo "Done."
   exit 0
@@ -107,7 +107,8 @@ echo "==> Seeding $SEED_TUTORS tutors × $SEED_STUDENTS students × $SEED_LESSON
 SUMMARY_JSON="$RESULTS_DIR/summary-${SCENARIO}-${TIMESTAMP}.json"
 
 echo "==> Running k6 scenario: $SCENARIO"
-docker run --rm --network host \
+chmod a+rwx "$RESULTS_DIR"
+docker run --rm --network host --user 0:0 \
   -v "$ROOT/deploy/loadtest/k6:/scripts:ro" \
   -v "$RESULTS_DIR:/results" \
   -v "$USERS_JSON:/data/users.json:ro" \

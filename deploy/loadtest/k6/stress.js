@@ -1,10 +1,10 @@
 /**
  * Stress test: ramp until errors or high latency (find breaking point).
- * Default: 10 → 100 VUs over 5 minutes.
  */
 import http from "k6/http";
 import { check, sleep } from "k6";
 import { baseUrl, jsonHeaders, monthRange } from "./lib/config.js";
+import { firstUser } from "./lib/users.js";
 
 export const options = {
   scenarios: {
@@ -28,15 +28,14 @@ export const options = {
 };
 
 export function setup() {
-  const users = JSON.parse(open(__ENV.USERS_FILE || "/data/users.json"));
-  const u = users.users[0];
+  const user = firstUser();
   const url = baseUrl();
   const login = http.post(
     `${url}/auth/login`,
-    JSON.stringify({ email: u.email, password: u.password }),
+    JSON.stringify({ email: user.email, password: user.password }),
     { headers: jsonHeaders() }
   );
-  if (login.status !== 200) throw new Error("stress setup login failed");
+  if (login.status !== 200) throw new Error(`stress setup login failed: ${login.body}`);
   return { token: login.json("access_token") };
 }
 

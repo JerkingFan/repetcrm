@@ -4,12 +4,8 @@
  */
 import http from "k6/http";
 import { check, sleep } from "k6";
-import { SharedArray } from "k6/data";
-import { baseUrl, jsonHeaders, monthRange, usersFile } from "./lib/config.js";
-
-const usersPayload = new SharedArray("users", function () {
-  return [JSON.parse(open(usersFile()))];
-});
+import { baseUrl, jsonHeaders, monthRange } from "./lib/config.js";
+import { allUsers } from "./lib/users.js";
 
 export const options = {
   scenarios: {
@@ -41,7 +37,7 @@ export function setup() {
     throw new Error(`Backend unhealthy: ${health.status} ${health.body}`);
   }
 
-  const users = usersPayload[0].users;
+  const users = allUsers();
   const tokens = [];
 
   for (let i = 0; i < users.length; i++) {
@@ -60,7 +56,7 @@ export function setup() {
   }
 
   if (tokens.length === 0) {
-    throw new Error("No tokens obtained in setup — run seed script first");
+    throw new Error("No tokens obtained in setup — run seed script first (check email domain)");
   }
 
   console.log(`setup: ${tokens.length}/${users.length} tutors logged in`);
