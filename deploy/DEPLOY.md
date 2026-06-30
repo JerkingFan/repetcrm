@@ -146,6 +146,9 @@ SQL-скрипты: см. [deploy/sql/README.md](sql/README.md).
 cd /opt/repetcrm
 git pull   # или залить новый архив
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+./deploy/scripts/loadtest.sh smoke   # быстрая проверка после деплоя
 ```
+
+Подробнее: [deploy/loadtest/README.md](loadtest/README.md).
 
 При изменении схемы БД — `deploy/sql/migrations/`.
