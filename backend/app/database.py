@@ -33,6 +33,20 @@ def get_db():
         db.close()
 
 
+def _sqlite_add_column(conn, table: str, col: str, typedef: str) -> bool:
+    """ADD COLUMN; returns True if column was added. Ignores duplicate-column errors."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
+    try:
+        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}"))
+        return True
+    except OperationalError as exc:
+        if "duplicate column" in str(exc).lower():
+            return False
+        raise
+
+
 def _migrate_sqlite_columns():
     """Добавляет новые колонки в существующую SQLite-базу."""
     from sqlalchemy import inspect, text
@@ -41,16 +55,18 @@ def _migrate_sqlite_columns():
         return
     insp = inspect(engine)
     with engine.connect() as conn:
-        user_cols = {c["name"] for c in insp.get_columns("users")} if insp.has_table("users") else set()
-        user_add = {
-            "onboarding_completed": "BOOLEAN DEFAULT 0",
-            "subjects": "TEXT DEFAULT '[]'",
-            "grade_levels": "TEXT DEFAULT '[]'",
-            "teaching_format": "VARCHAR(50) DEFAULT ''",
-        }
-        for col, typedef in user_add.items():
-            if col not in user_cols:
-                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {typedef}"))
+        if insp.has_table("users"):
+            user_cols = {c["name"] for c in insp.get_columns("users")}
+            user_add = {
+                "onboarding_completed": "BOOLEAN DEFAULT 0",
+                "subjects": "TEXT DEFAULT '[]'",
+                "grade_levels": "TEXT DEFAULT '[]'",
+                "teaching_format": "VARCHAR(50) DEFAULT ''",
+            }
+            for col, typedef in user_add.items():
+                if col not in user_cols:
+                    _sqlite_add_column(conn, "users", col, typedef)
+
         if insp.has_table("students"):
             student_cols = {c["name"] for c in insp.get_columns("students")}
             student_add = {
@@ -60,34 +76,46 @@ def _migrate_sqlite_columns():
                 "notes": "TEXT DEFAULT ''",
                 "boundary_mode": "VARCHAR(20) DEFAULT 'normal'",
                 "boundary_reason": "TEXT DEFAULT ''",
-                "boundary_updated_at": "DATETIME DEFAULT CURRENT_TIMESTAMP",
             }
             for col, typedef in student_add.items():
                 if col not in student_cols:
-                    conn.execute(text(f"ALTER TABLE students ADD COLUMN {col} {typedef}"))
+                    _sqlite_add_column(conn, "students", col, typedef)
+            # SQLite: non-constant DEFAULT (CURRENT_TIMESTAMP) запрещён в ALTER TABLE
+            if "boundary_updated_at" not in student_cols:
+                _sqlite_add_column(conn, "students", "boundary_updated_at", "DATETIME")
+                conn.execute(
+                    text(
+                        "UPDATE students SET boundary_updated_at = "
+                        "COALESCE(created_at, datetime('now')) WHERE boundary_updated_at IS NULL"
+                    )
+                )
+
         if insp.has_table("lessons"):
             lesson_cols = {c["name"] for c in insp.get_columns("lessons")}
             if "lesson_time" not in lesson_cols:
-                conn.execute(
-                    text("ALTER TABLE lessons ADD COLUMN lesson_time VARCHAR(5) DEFAULT '10:00'")
-                )
+                _sqlite_add_column(conn, "lessons", "lesson_time", "VARCHAR(5) DEFAULT '10:00'")
             if "is_conducted" not in lesson_cols:
-                conn.execute(
-                    text("ALTER TABLE lessons ADD COLUMN is_conducted BOOLEAN DEFAULT 0")
-                )
+                _sqlite_add_column(conn, "lessons", "is_conducted", "BOOLEAN DEFAULT 0")
             if "homework_prefs" not in lesson_cols:
-                conn.execute(text("ALTER TABLE lessons ADD COLUMN homework_prefs TEXT DEFAULT ''"))
+                _sqlite_add_column(conn, "lessons", "homework_prefs", "TEXT DEFAULT ''")
             if "board_id" not in lesson_cols:
-                conn.execute(text("ALTER TABLE lessons ADD COLUMN board_id INTEGER"))
+                _sqlite_add_column(conn, "lessons", "board_id", "INTEGER")
             lesson_add = {
                 "status": "VARCHAR(20) DEFAULT 'scheduled'",
                 "late_minutes": "INTEGER DEFAULT 0",
                 "rescheduled_from_lesson_id": "INTEGER",
-                "status_changed_at": "DATETIME DEFAULT CURRENT_TIMESTAMP",
             }
             for col, typedef in lesson_add.items():
                 if col not in lesson_cols:
-                    conn.execute(text(f"ALTER TABLE lessons ADD COLUMN {col} {typedef}"))
+                    _sqlite_add_column(conn, "lessons", col, typedef)
+            if "status_changed_at" not in lesson_cols:
+                _sqlite_add_column(conn, "lessons", "status_changed_at", "DATETIME")
+                conn.execute(
+                    text(
+                        "UPDATE lessons SET status_changed_at = "
+                        "COALESCE(created_at, datetime('now')) WHERE status_changed_at IS NULL"
+                    )
+                )
         conn.commit()
 
 
