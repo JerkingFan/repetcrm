@@ -19,6 +19,22 @@ _ENV_FILE_KEYS = {
     "LOCAL_ENABLE_TRANSFORMERS": "local_enable_transformers",
     "AI_USE_OLLAMA": "ai_use_ollama",
     "LATEX_ONLINE_COMPILE": "latex_online_compile",
+    "AUTH_LOGIN_MAX_FAILURES": "auth_login_max_failures",
+    "AUTH_LOGIN_WINDOW_SEC": "auth_login_window_sec",
+    "AUTH_LOGIN_FAIL_DELAY_SEC": "auth_login_fail_delay_sec",
+    "AUTH_REGISTER_MAX_PER_IP": "auth_register_max_per_ip",
+    "AUTH_REGISTER_WINDOW_SEC": "auth_register_window_sec",
+    "REDIS_URL": "redis_url",
+    "DB_POOL_SIZE": "db_pool_size",
+    "DB_MAX_OVERFLOW": "db_max_overflow",
+    "DB_POOL_TIMEOUT": "db_pool_timeout",
+    "DB_POOL_RECYCLE": "db_pool_recycle",
+    "REFRESH_TOKEN_EXPIRE_DAYS": "refresh_token_expire_days",
+    "COOKIE_SECURE": "cookie_secure",
+    "DASHBOARD_CACHE_TTL_SEC": "dashboard_cache_ttl_sec",
+    "ACCESS_TOKEN_EXPIRE_MINUTES": "access_token_expire_minutes",
+    "BOARD_ASSET_MAX_BYTES": "board_asset_max_bytes",
+    "BOARD_PERSIST_DEBOUNCE_SEC": "board_persist_debounce_sec",
 }
 
 
@@ -31,8 +47,17 @@ class Settings(BaseSettings):
 
     secret_key: str = "repetcrm-dev-secret-change-in-production"
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60 * 24 * 7
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 7
+    refresh_cookie_name: str = "repetcrm_refresh"
+    cookie_secure: bool = False
     database_url: str = "sqlite:///./data/repetcrm.db"
+    redis_url: str = ""
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 1800
+    dashboard_cache_ttl_sec: int = 30
     openrouter_api_key: str = ""
     openrouter_model: str = "qwen/qwen-2.5-7b-instruct"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
@@ -60,6 +85,14 @@ class Settings(BaseSettings):
         "http://localhost:3001,http://127.0.0.1:3001"
     )
     cors_allow_localhost_regex: bool = True
+    # Auth brute-force protection (in-memory; does not invalidate existing JWT)
+    auth_login_max_failures: int = 8
+    auth_login_window_sec: int = 60
+    auth_login_fail_delay_sec: float = 0.5
+    auth_register_max_per_ip: int = 5
+    auth_register_window_sec: int = 3600
+    board_asset_max_bytes: int = 10 * 1024 * 1024  # 10MB
+    board_persist_debounce_sec: float = 6.0
 
     @property
     def ollama_generate_url(self) -> str:
@@ -95,10 +128,28 @@ def get_settings() -> Settings:
             "local_enable_transformers",
             "ai_use_ollama",
             "latex_online_compile",
+            "cookie_secure",
         ):
             updates[field] = v.lower() in ("1", "true", "yes", "on")
-        elif field in ("openrouter_timeout_sec", "openrouter_max_tokens"):
+        elif field in (
+            "openrouter_timeout_sec",
+            "openrouter_max_tokens",
+            "auth_login_max_failures",
+            "auth_login_window_sec",
+            "auth_register_max_per_ip",
+            "auth_register_window_sec",
+            "board_asset_max_bytes",
+            "access_token_expire_minutes",
+            "refresh_token_expire_days",
+            "db_pool_size",
+            "db_max_overflow",
+            "db_pool_timeout",
+            "db_pool_recycle",
+            "dashboard_cache_ttl_sec",
+        ):
             updates[field] = float(v) if "." in v else int(v)
+        elif field in ("auth_login_fail_delay_sec", "board_persist_debounce_sec"):
+            updates[field] = float(v)
         else:
             updates[field] = v
     if updates:

@@ -11,23 +11,34 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [ok, setOk] = useState(false);
 
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
-    api
-      .me(token)
-      .then((user) => {
+    let cancelled = false;
+
+    async function checkAuth() {
+      let token = getToken();
+      if (!token) {
+        token = await api.refresh();
+      }
+      if (!token) {
+        router.replace("/login");
+        return;
+      }
+      try {
+        const user = await api.me(token);
+        if (cancelled) return;
         if (!user.onboarding_completed && pathname !== "/onboarding") {
           router.replace("/onboarding");
           return;
         }
         setOk(true);
-      })
-      .catch(() => {
-        router.replace("/login");
-      });
+      } catch {
+        if (!cancelled) router.replace("/login");
+      }
+    }
+
+    checkAuth();
+    return () => {
+      cancelled = true;
+    };
   }, [router, pathname]);
 
   if (!ok) {

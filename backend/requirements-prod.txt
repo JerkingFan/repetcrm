@@ -14,4 +14,5 @@ httpx==0.28.1
 weasyprint==63.1
 fpdf2>=2.8.0
 matplotlib>=3.8.0
+redis>=5.0.0
 psycopg2-binary>=2.9.9

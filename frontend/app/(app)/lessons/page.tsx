@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   PlusIcon,
   CalendarDaysIcon,
   TableCellsIcon,
   PencilIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
 } from "@heroicons/react/24/outline";
 import { getToken } from "@/lib/auth";
-import { api } from "@/lib/api";
+import { api, LessonListItem } from "@/lib/api";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import LessonsCalendar, { CalendarLesson } from "@/components/LessonsCalendar";
 import LessonFormModal, { LessonFormData } from "@/components/LessonFormModal";
-import { toDateKey, formatLessonTime } from "@/lib/calendar";
+import { toDateKey, formatLessonTime, formatMonthYear, monthDateRange } from "@/lib/calendar";
 import { formatMoney } from "@/lib/currency";
 
 type Lesson = CalendarLesson & {
@@ -21,6 +23,22 @@ type Lesson = CalendarLesson & {
   payment_amount: number;
   notes?: string;
 };
+
+function toCalendarLesson(item: LessonListItem): Lesson {
+  return {
+    id: item.id,
+    student_id: item.student_id,
+    board_id: item.board_id ?? null,
+    lesson_date: item.lesson_date,
+    lesson_time: item.lesson_time,
+    student_name: item.student_name,
+    duration_minutes: item.duration_minutes,
+    is_paid: item.is_paid,
+    payment_amount: item.payment_amount,
+    notes: item.notes || "",
+    homework: item.homework_id ? { id: item.homework_id } : null,
+  };
+}
 
 export default function LessonsPage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -33,17 +51,20 @@ export default function LessonsPage() {
   const [createDate, setCreateDate] = useState<string | null>(null);
   const [editLesson, setEditLesson] = useState<LessonFormData | null>(null);
 
-  const loadLessons = () => {
+  const loadLessons = useCallback(() => {
     const token = getToken();
     if (!token) return;
-    api.lessons.list<Lesson[]>(token).then(setLessons);
-  };
+    const { from, to } = monthDateRange(cursor.year, cursor.month);
+    setLoading(true);
+    api.lessons
+      .list(token, { from, to })
+      .then((items) => setLessons(items.map(toCalendarLesson)))
+      .finally(() => setLoading(false));
+  }, [cursor]);
 
   useEffect(() => {
-    const token = getToken();
-    if (!token) return;
-    api.lessons.list<Lesson[]>(token).then(setLessons).finally(() => setLoading(false));
-  }, []);
+    loadLessons();
+  }, [loadLessons]);
 
   const openCreate = (dateKey: string) => {
     setEditLesson(null);
@@ -86,6 +107,37 @@ export default function LessonsPage() {
     const n = new Date();
     setCursor({ year: n.getFullYear(), month: n.getMonth() });
   };
+
+  const monthNav = (
+    <div className="flex flex-wrap items-center gap-2 mb-4">
+      <button
+        type="button"
+        onClick={prevMonth}
+        className="p-2 rounded-lg hover:bg-slate-100 border border-slate-200"
+        aria-label="Предыдущий месяц"
+      >
+        <ChevronLeftIcon className="w-5 h-5 text-slate-600" />
+      </button>
+      <h2 className="text-lg font-bold text-brand-blue min-w-[180px] text-center">
+        {formatMonthYear(cursor.year, cursor.month)}
+      </h2>
+      <button
+        type="button"
+        onClick={nextMonth}
+        className="p-2 rounded-lg hover:bg-slate-100 border border-slate-200"
+        aria-label="Следующий месяц"
+      >
+        <ChevronRightIcon className="w-5 h-5 text-slate-600" />
+      </button>
+      <button
+        type="button"
+        onClick={goToday}
+        className="px-3 py-1.5 text-sm rounded-lg border border-slate-200 hover:bg-slate-50"
+      >
+        Сегодня
+      </button>
+    </div>
+  );
 
   if (loading && lessons.length === 0) return <LoadingSpinner />;
 
@@ -145,59 +197,62 @@ export default function LessonsPage() {
           />
         </div>
       ) : (
-        <div className="mt-8 overflow-x-auto rounded-2xl bg-white border border-slate-100 shadow-sm">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left">
-              <tr>
-                <th className="px-4 py-3 font-medium">Дата</th>
-                <th className="px-4 py-3 font-medium">Время</th>
-                <th className="px-4 py-3 font-medium">Ученик</th>
-                <th className="px-4 py-3 font-medium">Длительность</th>
-                <th className="px-4 py-3 font-medium">Оплата</th>
-                <th className="px-4 py-3 font-medium">ДЗ</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {lessons.map((l) => (
-                <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
-                  <td className="px-4 py-3">
-                    {new Date(l.lesson_date).toLocaleDateString("ru-RU")}
-                  </td>
-                  <td className="px-4 py-3 font-medium">{formatLessonTime(l.lesson_time)}</td>
-                  <td className="px-4 py-3 font-medium">{l.student_name}</td>
-                  <td className="px-4 py-3">{l.duration_minutes} мин</td>
-                  <td className="px-4 py-3">
-                    {l.is_paid ? (
-                      <span className="text-brand-green">{formatMoney(l.payment_amount)}</span>
-                    ) : (
-                      <span className="text-amber-600">Не оплачено</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {l.homework ? (
-                      <span className="text-brand-green">✓</span>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => openEdit(l)}
-                      className="inline-flex items-center gap-1 text-brand-blue hover:underline"
-                    >
-                      <PencilIcon className="w-4 h-4" />
-                      Изменить
-                    </button>
-                  </td>
+        <div className="mt-8">
+          {monthNav}
+          <div className="overflow-x-auto rounded-2xl bg-white border border-slate-100 shadow-sm">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Дата</th>
+                  <th className="px-4 py-3 font-medium">Время</th>
+                  <th className="px-4 py-3 font-medium">Ученик</th>
+                  <th className="px-4 py-3 font-medium">Длительность</th>
+                  <th className="px-4 py-3 font-medium">Оплата</th>
+                  <th className="px-4 py-3 font-medium">ДЗ</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          {lessons.length === 0 && (
-            <p className="p-8 text-center text-slate-500">Нажмите «+» в календаре или создайте занятие</p>
-          )}
+              </thead>
+              <tbody>
+                {lessons.map((l) => (
+                  <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50">
+                    <td className="px-4 py-3">
+                      {new Date(l.lesson_date).toLocaleDateString("ru-RU")}
+                    </td>
+                    <td className="px-4 py-3 font-medium">{formatLessonTime(l.lesson_time)}</td>
+                    <td className="px-4 py-3 font-medium">{l.student_name}</td>
+                    <td className="px-4 py-3">{l.duration_minutes} мин</td>
+                    <td className="px-4 py-3">
+                      {l.is_paid ? (
+                        <span className="text-brand-green">{formatMoney(l.payment_amount)}</span>
+                      ) : (
+                        <span className="text-amber-600">Не оплачено</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {l.homework ? (
+                        <span className="text-brand-green">✓</span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(l)}
+                        className="inline-flex items-center gap-1 text-brand-blue hover:underline"
+                      >
+                        <PencilIcon className="w-4 h-4" />
+                        Изменить
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {lessons.length === 0 && (
+              <p className="p-8 text-center text-slate-500">Нет занятий в этом месяце</p>
+            )}
+          </div>
         </div>
       )}
 

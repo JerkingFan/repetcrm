@@ -76,10 +76,37 @@ class StudentOut(BaseModel):
     contact: str
     parent_contact: str
     notes: str
+    boundary_mode: str = "normal"
+    boundary_reason: str = ""
+    boundary_updated_at: Optional[datetime] = None
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class StudentListItem(BaseModel):
+    """Краткая карточка для списка (без boundary и created_at)."""
+
+    id: int
+    name: str
+    subject: str
+    grade: str
+    school: str
+    contact: str
+    parent_contact: str
+    notes: str
+
+    class Config:
+        from_attributes = True
+
+
+class StudentListPage(BaseModel):
+    items: list[StudentListItem]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
 
 
 # Checklist
@@ -139,6 +166,9 @@ class LessonUpdate(BaseModel):
     duration_minutes: Optional[int] = None
     payment_amount: Optional[float] = None
     is_paid: Optional[bool] = None
+    status: Optional[str] = None
+    late_minutes: Optional[int] = None
+    rescheduled_from_lesson_id: Optional[int] = None
     notes: Optional[str] = None
 
 
@@ -162,6 +192,9 @@ class LessonOut(BaseModel):
     payment_amount: float
     is_paid: bool
     is_conducted: bool = False
+    status: str = "scheduled"
+    late_minutes: int = 0
+    rescheduled_from_lesson_id: Optional[int] = None
     homework_prefs: Optional[HomeworkPrefs] = None
     notes: str
     created_at: datetime
@@ -171,6 +204,24 @@ class LessonOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class LessonListItem(BaseModel):
+    """Краткая запись для календаря/списка (без чек-листа, prefs и текста ДЗ)."""
+
+    id: int
+    student_id: int
+    board_id: Optional[int] = None
+    lesson_date: date
+    lesson_time: str = "10:00"
+    duration_minutes: int
+    payment_amount: float
+    is_paid: bool
+    is_conducted: bool = False
+    status: str = "scheduled"
+    notes: str = ""
+    student_name: Optional[str] = None
+    homework_id: Optional[int] = None
 
 
 # Homework
@@ -195,6 +246,23 @@ class HomeworkOut(BaseModel):
         from_attributes = True
 
 
+class HomeworkJobStartOut(BaseModel):
+    job_id: str
+    status: str
+
+
+class HomeworkJobOut(BaseModel):
+    job_id: str
+    status: str
+    lesson_id: int | None = None
+    homework_id: int | None = None
+    job_type: str | None = None
+    created_at_ms: int
+    updated_at_ms: int
+    result: dict | None = None
+    error: str | None = None
+
+
 # Dashboard
 class DashboardStats(BaseModel):
     students_count: int
@@ -205,6 +273,48 @@ class DashboardStats(BaseModel):
 
 class StudentWithLessons(StudentOut):
     lessons: list[LessonOut] = []
+
+
+class StudentBoundariesOut(BaseModel):
+    student_id: int
+    student_name: str = ""
+    boundary_mode: str
+    boundary_reason: str
+    boundary_updated_at: Optional[datetime] = None
+    suggested_mode: str
+    suggested_reason: str
+    signals: dict[str, int]
+    rules: dict[str, str] = {}
+    notification_message: Optional[str] = None
+
+
+class BoundaryApplyIn(BaseModel):
+    mode: str
+    reason: str = ""
+
+
+class BoundaryMessageOut(BaseModel):
+    student_id: int
+    student_name: str
+    mode: str
+    reason: str
+    rules: dict[str, str]
+    message: str
+
+
+class BoundarySyncOut(BaseModel):
+    previous_mode: str
+    new_mode: str
+    mode_changed: bool
+    escalated: bool
+    reason: str
+    message: Optional[str] = None
+
+
+class LessonWithBoundarySync(BaseModel):
+    lesson: LessonOut
+    boundary_sync: Optional[BoundarySyncOut] = None
+
 
 
 # Boards (Virtual whiteboard)

@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime
 from typing import Any
 
-PERSIST_DEBOUNCE_SEC = 1.5
+from app.config import get_settings
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -162,6 +162,12 @@ async def upload_board_asset(
     board_dir = os.path.join(media_root, "boards", str(b.id))
     os.makedirs(board_dir, exist_ok=True)
 
+    cfg = get_settings()
+    max_bytes = int(cfg.board_asset_max_bytes)
+    ctype = (file.content_type or "").lower()
+    if not ctype.startswith("image/"):
+        raise HTTPException(status_code=415, detail="Only image uploads are supported")
+
     # Keep extension if present
     name = file.filename or "image"
     ext = ""
@@ -172,9 +178,25 @@ async def upload_board_asset(
     fname = f"{secrets.token_hex(12)}{ext}"
     path = os.path.join(board_dir, fname)
 
-    content = await file.read()
-    with open(path, "wb") as f:
-        f.write(content)
+    # Stream to disk with size limit (avoid OOM).
+    total = 0
+    try:
+        with open(path, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1MB
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise HTTPException(status_code=413, detail="File too large")
+                f.write(chunk)
+    except HTTPException:
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+        except Exception:
+            pass
+        raise
 
     # Serve via backend StaticFiles mount. In production behind nginx,
     # frontend calls API through /api, so return an /api/media/... path.
@@ -265,11 +287,12 @@ class _BoardRoomStore:
         task = self._persist_tasks.get(board_id)
         if task and not task.done():
             task.cancel()
-        self._persist_tasks[board_id] = asyncio.create_task(self._persist_after_delay(board_id))
+        delay = float(get_settings().board_persist_debounce_sec)
+        self._persist_tasks[board_id] = asyncio.create_task(self._persist_after_delay(board_id, delay))
 
-    async def _persist_after_delay(self, board_id: int) -> None:
+    async def _persist_after_delay(self, board_id: int, delay_sec: float) -> None:
         try:
-            await asyncio.sleep(PERSIST_DEBOUNCE_SEC)
+            await asyncio.sleep(max(0.5, delay_sec))
             await self.flush(board_id)
         except asyncio.CancelledError:
             pass

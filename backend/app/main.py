@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import init_db
+from app.redis_client import close_redis
 from app.routers import auth_router, students, lessons, homework, ai
 from app.routers import boards
 from app.services.homework_ai import get_ai_status
@@ -46,6 +47,7 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(_log_ai_status())
     yield
+    close_redis()
 
 
 app = FastAPI(title="RepetCRM API", version="1.0.0", lifespan=lifespan)

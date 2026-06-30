@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   PlusIcon,
@@ -9,11 +9,13 @@ import {
   AcademicCapIcon,
   BuildingLibraryIcon,
   PhoneIcon,
+  MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
 import { getToken } from "@/lib/auth";
-import { api, ApiError, StudentRecord } from "@/lib/api";
+import { api, ApiError, StudentListItem } from "@/lib/api";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import Alert from "@/components/Alert";
+import BoundaryModeBadge from "@/components/BoundaryModeBadge";
 
 const emptyForm = {
   name: "",
@@ -26,7 +28,13 @@ const emptyForm = {
 };
 
 export default function StudentsPage() {
-  const [students, setStudents] = useState<StudentRecord[]>([]);
+  const [students, setStudents] = useState<StudentListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [search, setSearch] = useState("");
+  const [searchDebounced, setSearchDebounced] = useState("");
+  const pageSize = 20;
   const [profile, setProfile] = useState<{ subjects: string[]; grade_levels: string[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -54,19 +62,35 @@ export default function StudentsPage() {
 
   const profileReady = subjectOptions.length > 0 && gradeOptions.length > 0;
 
-  const load = () => {
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setSearchDebounced(search);
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
+  const load = useCallback(() => {
     const token = getToken();
     if (!token) return;
-    Promise.all([api.students.list(token), api.me(token)])
-      .then(([list, me]) => {
-        setStudents(list);
-        setProfile({ subjects: me.subjects, grade_levels: me.grade_levels });
+    setLoading(true);
+    Promise.all([
+      api.students.list(token, { q: searchDebounced || undefined, page, page_size: pageSize }),
+      profile ? Promise.resolve(null) : api.me(token),
+    ])
+      .then(([listRes, me]) => {
+        setStudents(listRes.items);
+        setTotal(listRes.total);
+        setHasMore(listRes.has_more);
+        if (me) setProfile({ subjects: me.subjects, grade_levels: me.grade_levels });
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  };
+  }, [searchDebounced, page, pageSize, profile]);
 
-  useEffect(() => load(), []);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const openCreate = () => {
     if (!profileReady) {
@@ -83,7 +107,7 @@ export default function StudentsPage() {
     setModal("create");
   };
 
-  const openEdit = (s: StudentRecord) => {
+  const openEdit = (s: StudentListItem) => {
     setForm({
       name: s.name,
       subject: s.subject,
@@ -142,10 +166,20 @@ export default function StudentsPage() {
         <div>
           <h1 className="text-2xl font-bold text-brand-blue">Ученики</h1>
           <p className="text-slate-500 text-sm mt-1">
-            {students.length} учеников · карточки с классом, школой и контактами
+            {total} учеников · карточки с классом, школой и контактами
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <div className="relative">
+            <MagnifyingGlassIcon className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Поиск по имени…"
+              className="pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-sm w-48 sm:w-56"
+            />
+          </div>
           <div className="flex rounded-lg border border-slate-200 p-0.5 bg-white text-sm">
             <button
               type="button"
@@ -187,6 +221,7 @@ export default function StudentsPage() {
             >
               <Link href={`/students/${s.id}`} className="block flex-1">
                 <div className="flex flex-wrap gap-2 mb-3">
+                  <BoundaryModeBadge mode={s.boundary_mode} />
                   {s.grade && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-brand-blue/10 text-brand-blue text-xs font-semibold">
                       <AcademicCapIcon className="w-3.5 h-3.5" />
@@ -286,8 +321,35 @@ export default function StudentsPage() {
         </div>
       )}
 
-      {students.length === 0 && (
+      {students.length === 0 && !searchDebounced && (
         <p className="mt-12 text-center text-slate-500">Добавьте первого ученика</p>
+      )}
+      {students.length === 0 && searchDebounced && (
+        <p className="mt-12 text-center text-slate-500">Никого не найдено по запросу «{searchDebounced}»</p>
+      )}
+
+      {total > pageSize && (
+        <div className="mt-8 flex items-center justify-center gap-4">
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            className="px-4 py-2 rounded-xl border text-sm disabled:opacity-40"
+          >
+            Назад
+          </button>
+          <span className="text-sm text-slate-500">
+            Страница {page} · показано {students.length} из {total}
+          </span>
+          <button
+            type="button"
+            disabled={!hasMore}
+            onClick={() => setPage((p) => p + 1)}
+            className="px-4 py-2 rounded-xl border text-sm disabled:opacity-40"
+          >
+            Далее
+          </button>
+        </div>
       )}
 
       {modal && (

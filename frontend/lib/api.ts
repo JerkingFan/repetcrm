@@ -1,6 +1,7 @@
 import { getApiUrl } from "@/lib/apiUrl";
+import { clearToken, getToken, setToken } from "@/lib/auth";
 
-export type StudentRecord = {
+export type StudentListItem = {
   id: number;
   name: string;
   subject: string;
@@ -9,7 +10,78 @@ export type StudentRecord = {
   contact: string;
   parent_contact: string;
   notes: string;
+  boundary_mode?: string;
+};
+
+export type StudentListPage = {
+  items: StudentListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+};
+
+export type StudentRecord = StudentListItem & {
   created_at: string;
+  boundary_mode?: string;
+  boundary_reason?: string;
+  boundary_updated_at?: string | null;
+};
+
+export type BoundarySyncOut = {
+  previous_mode: string;
+  new_mode: string;
+  mode_changed: boolean;
+  escalated: boolean;
+  reason: string;
+  message: string | null;
+};
+
+export type LessonWithBoundarySync<TLesson = unknown> = {
+  lesson: TLesson;
+  boundary_sync: BoundarySyncOut | null;
+};
+
+export type LessonListItem = {
+  id: number;
+  student_id: number;
+  board_id?: number | null;
+  lesson_date: string;
+  lesson_time: string;
+  duration_minutes: number;
+  payment_amount: number;
+  is_paid: boolean;
+  is_conducted?: boolean;
+  status?: string;
+  notes?: string;
+  student_name?: string;
+  homework_id?: number | null;
+};
+
+export type StudentBoundaries = {
+  student_id: number;
+  student_name: string;
+  boundary_mode: string;
+  boundary_reason: string;
+  boundary_updated_at: string | null;
+  suggested_mode: string;
+  suggested_reason: string;
+  signals: Record<string, number>;
+  rules: {
+    reschedule_notice: string;
+    payment: string;
+    slots: string;
+  };
+  notification_message: string | null;
+};
+
+export type BoundaryMessage = {
+  student_id: number;
+  student_name: string;
+  mode: string;
+  reason: string;
+  rules: StudentBoundaries["rules"];
+  message: string;
 };
 
 export class ApiError extends Error {
@@ -21,18 +93,59 @@ export class ApiError extends Error {
   }
 }
 
+let refreshPromise: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    try {
+      const res = await fetch(`${getApiUrl()}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        clearToken();
+        return null;
+      }
+      const data = (await res.json()) as { access_token: string };
+      setToken(data.access_token);
+      return data.access_token;
+    } catch {
+      clearToken();
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
-  token?: string | null
+  token?: string | null,
+  retried = false
 ): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const authToken = token ?? getToken();
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-  const res = await fetch(`${getApiUrl()}${path}`, { ...options, headers });
+  const res = await fetch(`${getApiUrl()}${path}`, {
+    ...options,
+    headers,
+    credentials: "include",
+  });
+
+  if (res.status === 401 && !retried && !path.startsWith("/auth/login") && !path.startsWith("/auth/register")) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      return request<T>(path, options, newToken, true);
+    }
+  }
+
   if (!res.ok) {
     let detail = "Request failed";
     try {
@@ -60,6 +173,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
+
+  refresh: () => refreshAccessToken(),
+
+  logout: async () => {
+    try {
+      await request<void>("/auth/logout", { method: "POST" });
+    } finally {
+      clearToken();
+    }
+  },
 
   me: (token: string) =>
     request<{
@@ -93,24 +216,81 @@ export const api = {
     }>("/dashboard", {}, token),
 
   students: {
-    list: (token: string) =>
-      request<StudentRecord[]>("/students", {}, token),
+    list: (
+      token: string,
+      params?: { q?: string; page?: number; page_size?: number }
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.q?.trim()) qs.set("q", params.q.trim());
+      if (params?.page) qs.set("page", String(params.page));
+      if (params?.page_size) qs.set("page_size", String(params.page_size));
+      const query = qs.toString();
+      return request<StudentListPage>(`/students${query ? `?${query}` : ""}`, {}, token);
+    },
+    listAll: async (token: string, q?: string) => {
+      const all: StudentListItem[] = [];
+      let page = 1;
+      let hasMore = true;
+      while (hasMore) {
+        const res = await api.students.list(token, { q, page, page_size: 100 });
+        all.push(...res.items);
+        hasMore = res.has_more;
+        page += 1;
+      }
+      return all;
+    },
     get: <T = unknown>(token: string, id: number) => request<T>(`/students/${id}`, {}, token),
-    create: (token: string, data: Partial<StudentRecord> & { name: string }) =>
+    create: (token: string, data: Partial<StudentListItem> & { name: string }) =>
       request("/students", { method: "POST", body: JSON.stringify(data) }, token),
-    update: (token: string, id: number, data: Partial<StudentRecord>) =>
+    update: (token: string, id: number, data: Partial<StudentListItem>) =>
       request(`/students/${id}`, { method: "PUT", body: JSON.stringify(data) }, token),
     delete: (token: string, id: number) =>
       request(`/students/${id}`, { method: "DELETE" }, token),
+    getBoundaries: (token: string, id: number) =>
+      request<StudentBoundaries>(`/students/${id}/boundaries`, {}, token),
+    getBoundaryMessage: (token: string, id: number, mode?: string) => {
+      const qs = mode ? `?mode=${encodeURIComponent(mode)}` : "";
+      return request<BoundaryMessage>(`/students/${id}/boundaries/message${qs}`, {}, token);
+    },
+    applyBoundaries: (token: string, id: number, data: { mode: string; reason?: string }) =>
+      request<StudentRecord>(
+        `/students/${id}/boundaries/apply`,
+        { method: "POST", body: JSON.stringify(data) },
+        token
+      ),
   },
 
   lessons: {
-    list: <T = unknown>(token: string) => request<T>("/lessons", {}, token),
+    list: (token: string, params?: { from?: string; to?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.from) qs.set("from", params.from);
+      if (params?.to) qs.set("to", params.to);
+      const query = qs.toString();
+      return request<LessonListItem[]>(`/lessons${query ? `?${query}` : ""}`, {}, token);
+    },
     get: <T = unknown>(token: string, id: number) => request<T>(`/lessons/${id}`, {}, token),
+    startHomeworkJob: (token: string, id: number) =>
+      request<{ job_id: string; status: string }>(`/lessons/${id}/generate-homework-job`, { method: "POST" }, token),
+    getJob: (token: string, jobId: string) =>
+      request<{
+        job_id: string;
+        status: "queued" | "running" | "done" | "error";
+        lesson_id?: number | null;
+        created_at_ms: number;
+        updated_at_ms: number;
+        result?: {
+          homework_id?: number;
+          generation_source?: string;
+          generation_hint?: string;
+          configured_provider?: string;
+          configured_model?: string;
+        } | null;
+        error?: string | null;
+      }>(`/jobs/${encodeURIComponent(jobId)}`, {}, token),
     create: <T = unknown>(token: string, data: object) =>
       request<T>("/lessons", { method: "POST", body: JSON.stringify(data) }, token),
-    update: (token: string, id: number, data: object) =>
-      request(`/lessons/${id}`, { method: "PUT", body: JSON.stringify(data) }, token),
+    update: <T = unknown>(token: string, id: number, data: object) =>
+      request<T>(`/lessons/${id}`, { method: "PUT", body: JSON.stringify(data) }, token),
     delete: (token: string, id: number) =>
       request(`/lessons/${id}`, { method: "DELETE" }, token),
     saveChecklist: (token: string, id: number, items: object[]) =>
@@ -127,6 +307,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }, token),
+    // legacy synchronous endpoint (kept for compatibility / debugging)
     generateHomework: <T = unknown>(token: string, id: number) =>
       request<T>(`/lessons/${id}/generate-homework`, { method: "POST" }, token),
   },

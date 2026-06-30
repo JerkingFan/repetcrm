@@ -31,6 +31,13 @@ export function formatMonthYear(year: number, month: number): string {
   return `${MONTHS[month]} ${year}`;
 }
 
+/** Первый и последний день месяца (YYYY-MM-DD) для API /lessons?from=&to= */
+export function monthDateRange(year: number, month: number): { from: string; to: string } {
+  const from = toDateKey(new Date(year, month, 1));
+  const to = toDateKey(new Date(year, month + 1, 0));
+  return { from, to };
+}
+
 export function formatDayLabel(key: string): string {
   return parseDateKey(key).toLocaleDateString("ru-RU", {
     weekday: "long",

@@ -15,7 +15,7 @@ import {
   ChevronRightIcon,
 } from "@heroicons/react/24/outline";
 import { useState } from "react";
-import { clearToken } from "@/lib/auth";
+import { api } from "@/lib/api";
 
 const nav = [
   { href: "/dashboard", label: "Дашборд", icon: HomeIcon },
@@ -103,8 +103,8 @@ export default function Sidebar() {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => pathname.startsWith("/boards"));
 
-  const logout = () => {
-    clearToken();
+  const logout = async () => {
+    await api.logout();
     router.push("/login");
   };
 

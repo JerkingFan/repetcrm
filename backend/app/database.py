@@ -3,8 +3,21 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from app.config import settings  # noqa: E402 — used in _migrate_sqlite_columns
 
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args)
+_is_sqlite = settings.database_url.startswith("sqlite")
+
+_engine_kwargs: dict = {}
+if _is_sqlite:
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    _engine_kwargs.update(
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=settings.db_pool_timeout,
+        pool_recycle=settings.db_pool_recycle,
+        pool_pre_ping=True,
+    )
+
+engine = create_engine(settings.database_url, **_engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -45,6 +58,9 @@ def _migrate_sqlite_columns():
                 "school": "VARCHAR(255) DEFAULT ''",
                 "parent_contact": "VARCHAR(255) DEFAULT ''",
                 "notes": "TEXT DEFAULT ''",
+                "boundary_mode": "VARCHAR(20) DEFAULT 'normal'",
+                "boundary_reason": "TEXT DEFAULT ''",
+                "boundary_updated_at": "DATETIME DEFAULT CURRENT_TIMESTAMP",
             }
             for col, typedef in student_add.items():
                 if col not in student_cols:
@@ -63,6 +79,40 @@ def _migrate_sqlite_columns():
                 conn.execute(text("ALTER TABLE lessons ADD COLUMN homework_prefs TEXT DEFAULT ''"))
             if "board_id" not in lesson_cols:
                 conn.execute(text("ALTER TABLE lessons ADD COLUMN board_id INTEGER"))
+            lesson_add = {
+                "status": "VARCHAR(20) DEFAULT 'scheduled'",
+                "late_minutes": "INTEGER DEFAULT 0",
+                "rescheduled_from_lesson_id": "INTEGER",
+                "status_changed_at": "DATETIME DEFAULT CURRENT_TIMESTAMP",
+            }
+            for col, typedef in lesson_add.items():
+                if col not in lesson_cols:
+                    conn.execute(text(f"ALTER TABLE lessons ADD COLUMN {col} {typedef}"))
+        conn.commit()
+
+
+def _ensure_performance_indexes():
+    """Создаёт индексы на существующих БД (идемпотентно)."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if not insp.has_table("lessons"):
+        return
+    indexes = [
+        "CREATE INDEX IF NOT EXISTS idx_students_tutor_name ON students(tutor_id, name)",
+        "CREATE INDEX IF NOT EXISTS idx_lessons_tutor_date ON lessons(tutor_id, lesson_date)",
+        "CREATE INDEX IF NOT EXISTS idx_lessons_tutor_date_desc ON lessons(tutor_id, lesson_date DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_lessons_tutor_paid ON lessons(tutor_id, is_paid)",
+        "CREATE INDEX IF NOT EXISTS idx_lessons_student_date ON lessons(student_id, lesson_date DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_auth_sessions_token_hash ON auth_sessions(token_hash)",
+    ]
+    with engine.connect() as conn:
+        for ddl in indexes:
+            try:
+                conn.execute(text(ddl))
+            except Exception:
+                pass
         conn.commit()
 
 
@@ -71,3 +121,4 @@ def init_db():
 
     Base.metadata.create_all(bind=engine)
     _migrate_sqlite_columns()
+    _ensure_performance_indexes()

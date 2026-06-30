@@ -27,7 +27,7 @@ export default function NewLessonPage() {
   useEffect(() => {
     const token = getToken();
     if (!token) return;
-    api.students.list(token).then((s) => {
+    api.students.listAll(token).then((s) => {
       setStudents(s);
       if (s.length) setForm((f) => ({ ...f, student_id: String(s[0].id) }));
       setLoading(false);

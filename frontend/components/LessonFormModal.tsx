@@ -5,10 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { XMarkIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { getToken } from "@/lib/auth";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, LessonWithBoundarySync, BoundarySyncOut } from "@/lib/api";
 import Alert from "@/components/Alert";
 import { formatDayLabel } from "@/lib/calendar";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
+import { toast } from "@/lib/toast";
+import { ClipboardDocumentIcon } from "@heroicons/react/24/outline";
 
 type StudentOption = { id: number; name: string; subject?: string; grade?: string };
 
@@ -44,6 +46,8 @@ export default function LessonFormModal({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [boundarySync, setBoundarySync] = useState<BoundarySyncOut | null>(null);
+  const [copying, setCopying] = useState(false);
 
   const [form, setForm] = useState({
     student_id: lesson ? String(lesson.student_id) : "",
@@ -66,7 +70,7 @@ export default function LessonFormModal({
       const token = getToken();
       if (!token) return;
       api.students
-        .list(token)
+        .listAll(token)
         .then((list) => {
           setStudents(list);
           if (list.length) setForm((f) => ({ ...f, student_id: String(list[0].id) }));
@@ -81,6 +85,7 @@ export default function LessonFormModal({
     if (!token) return;
     setSaving(true);
     setError("");
+    setBoundarySync(null);
     try {
       if (mode === "create") {
         const created = await api.lessons.create<{ id: number }>(token, {
@@ -95,7 +100,7 @@ export default function LessonFormModal({
         if (onSaved) onSaved();
         else router.push(`/lessons/${created.id}`);
       } else if (lesson?.id) {
-        await api.lessons.update(token, lesson.id, {
+        const res = await api.lessons.update<LessonWithBoundarySync<unknown>>(token, lesson.id, {
           lesson_date: form.lesson_date,
           lesson_time: form.lesson_time,
           duration_minutes: Number(form.duration_minutes),
@@ -103,8 +108,25 @@ export default function LessonFormModal({
           is_paid: form.is_paid,
           notes: form.notes,
         });
+        const sync = res?.boundary_sync ?? null;
+        setBoundarySync(sync);
+        if (sync?.mode_changed) {
+          const title = sync.escalated
+            ? `Границы ужесточены: ${sync.previous_mode} → ${sync.new_mode}`
+            : `Границы обновлены: ${sync.previous_mode} → ${sync.new_mode}`;
+          toast(title, sync.escalated ? "info" : "success");
+          if (sync.message) {
+            try {
+              await navigator.clipboard.writeText(sync.message);
+              toast("Сообщение скопировано — вставь ученику/родителю", "success");
+            } catch {
+              toast("Не удалось скопировать сообщение автоматически", "error");
+            }
+          }
+        }
         onSaved?.();
-        onClose();
+        // Keep modal open if we have a message to show.
+        if (!sync?.message) onClose();
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Ошибка сохранения");
@@ -168,6 +190,53 @@ export default function LessonFormModal({
         ) : (
           <form onSubmit={submit} className="p-6 space-y-4">
             {error && <Alert message={error} onClose={() => setError("")} />}
+            {boundarySync?.message && (
+              <Alert
+                type="info"
+                message={`CRM сгенерировала сообщение для границ (${boundarySync.new_mode}). Оно уже в буфере обмена.`}
+                onClose={() => setBoundarySync(null)}
+              />
+            )}
+            {boundarySync?.message && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                      Сообщение для ученика/родителя
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Если автокопирование не сработало — нажми кнопку или скопируй вручную.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={copying}
+                    onClick={async () => {
+                      if (!boundarySync?.message) return;
+                      setCopying(true);
+                      try {
+                        await navigator.clipboard.writeText(boundarySync.message);
+                        toast("Сообщение скопировано", "success");
+                      } catch {
+                        toast("Не удалось скопировать — выдели и скопируй вручную", "error");
+                      } finally {
+                        setCopying(false);
+                      }
+                    }}
+                    className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    title="Скопировать сообщение"
+                  >
+                    <ClipboardDocumentIcon className="w-4 h-4" />
+                    {copying ? "Копирую…" : "Скопировать ещё раз"}
+                  </button>
+                </div>
+                <textarea
+                  readOnly
+                  value={boundarySync.message}
+                  className="w-full h-28 px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-800"
+                />
+              </div>
+            )}
 
             {mode === "create" && (
               <div>

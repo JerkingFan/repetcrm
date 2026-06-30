@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS students (
     contact         VARCHAR(255) NOT NULL DEFAULT '',
     parent_contact  VARCHAR(255) NOT NULL DEFAULT '',
     notes           TEXT NOT NULL DEFAULT '',
+    boundary_mode   VARCHAR(20) NOT NULL DEFAULT 'normal',
+    boundary_reason TEXT NOT NULL DEFAULT '',
+    boundary_updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -38,6 +41,10 @@ CREATE TABLE IF NOT EXISTS lessons (
     payment_amount   REAL NOT NULL DEFAULT 0,
     is_paid          BOOLEAN NOT NULL DEFAULT 0,
     is_conducted     BOOLEAN NOT NULL DEFAULT 0,
+    status           VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+    late_minutes     INTEGER NOT NULL DEFAULT 0,
+    rescheduled_from_lesson_id INTEGER REFERENCES lessons(id),
+    status_changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     homework_prefs   TEXT NOT NULL DEFAULT '',
     notes            TEXT NOT NULL DEFAULT '',
     created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -62,7 +69,26 @@ CREATE TABLE IF NOT EXISTS homeworks (
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_students_tutor_id ON students(tutor_id);
+CREATE INDEX IF NOT EXISTS idx_students_tutor_name ON students(tutor_id, name);
 CREATE INDEX IF NOT EXISTS idx_lessons_tutor_id ON lessons(tutor_id);
+CREATE INDEX IF NOT EXISTS idx_lessons_tutor_date ON lessons(tutor_id, lesson_date);
+CREATE INDEX IF NOT EXISTS idx_lessons_tutor_date_desc ON lessons(tutor_id, lesson_date DESC);
+CREATE INDEX IF NOT EXISTS idx_lessons_tutor_paid ON lessons(tutor_id, is_paid);
 CREATE INDEX IF NOT EXISTS idx_lessons_student_id ON lessons(student_id);
 CREATE INDEX IF NOT EXISTS idx_lessons_date ON lessons(lesson_date);
 CREATE INDEX IF NOT EXISTS idx_checklist_lesson_id ON checklist_items(lesson_id);
+CREATE INDEX IF NOT EXISTS idx_homeworks_lesson_id ON homeworks(lesson_id);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash      VARCHAR(64) NOT NULL UNIQUE,
+    expires_at      DATETIME NOT NULL,
+    revoked_at      DATETIME NULL,
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_ip         VARCHAR(45) NOT NULL DEFAULT '',
+    user_agent      VARCHAR(512) NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_token_hash ON auth_sessions(token_hash);

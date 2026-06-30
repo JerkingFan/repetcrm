@@ -12,6 +12,8 @@ import {
 import { getToken } from "@/lib/auth";
 import { api, StudentRecord } from "@/lib/api";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import StudentBoundariesPanel from "@/components/StudentBoundariesPanel";
+import BoundaryModeBadge from "@/components/BoundaryModeBadge";
 import { toast } from "@/lib/toast";
 
 type StudentDetail = StudentRecord & {
@@ -27,19 +29,42 @@ export default function StudentDetailPage() {
   const params = useParams();
   const id = Number(params.id);
   const [data, setData] = useState<StudentDetail | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+
+  const loadStudent = () => {
+    const t = getToken();
+    if (!t) return;
+    setToken(t);
+    api.students.get<StudentDetail>(t, id).then(setData);
+  };
 
   useEffect(() => {
-    const token = getToken();
-    if (!token) return;
-    api.students.get<StudentDetail>(token, id).then(setData);
+    loadStudent();
   }, [id]);
 
   const downloadPdf = async (homeworkId: number) => {
     const token = getToken();
     if (!token) return;
-    const res = await fetch(api.homework.pdfUrl(homeworkId), {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const tryFetchPdf = async () => {
+      return await fetch(api.homework.pdfUrl(homeworkId), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    };
+
+    let res = await tryFetchPdf();
+    if (res.status === 202) {
+      const started = (await res.json()) as { job_id: string };
+      const jobId = started.job_id;
+      const deadline = Date.now() + 3 * 60_000;
+      while (Date.now() < deadline) {
+        const j = await api.lessons.getJob(token, jobId);
+        if (j.status === "done") break;
+        if (j.status === "error") throw new Error(j.error || "Ошибка сборки PDF");
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      res = await tryFetchPdf();
+    }
+
     if (!res.ok) {
       toast("Ошибка скачивания PDF", "error");
       return;
@@ -63,6 +88,7 @@ export default function StudentDetailPage() {
 
       <div className="mt-6 p-6 rounded-2xl bg-white border border-slate-100 shadow-sm">
         <div className="flex flex-wrap gap-2 mb-4">
+          <BoundaryModeBadge mode={data.boundary_mode} />
           {data.grade && (
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-blue/10 text-brand-blue text-sm font-semibold">
               <AcademicCapIcon className="w-4 h-4" />
@@ -109,6 +135,14 @@ export default function StudentDetailPage() {
           </div>
         )}
       </div>
+
+      {token && (
+        <StudentBoundariesPanel
+          studentId={id}
+          token={token}
+          onApplied={loadStudent}
+        />
+      )}
 
       <h2 className="mt-10 text-lg font-semibold">История занятий и домашек</h2>
       <div className="mt-6 space-y-4">

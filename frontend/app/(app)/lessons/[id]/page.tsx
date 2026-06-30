@@ -68,6 +68,9 @@ export default function LessonDetailPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobStatus, setJobStatus] = useState<"idle" | "queued" | "running" | "done" | "error">("idle");
+  const [jobHint, setJobHint] = useState("");
   const [showEdit, setShowEdit] = useState(false);
   const [isConducted, setIsConducted] = useState(false);
   const [prefs, setPrefs] = useState<HomeworkPrefs>(defaultHomeworkPrefs());
@@ -105,6 +108,55 @@ export default function LessonDetailPage() {
   }, [lessonId]);
 
   useEffect(() => load(), [load]);
+
+  // Resume background generation if user reloads the page
+  useEffect(() => {
+    if (!lessonId) return;
+    const key = `repetcrm:hw_job:${lessonId}`;
+    const saved = typeof window !== "undefined" ? window.localStorage.getItem(key) : null;
+    if (saved) {
+      setJobId(saved);
+      setJobStatus("queued");
+    }
+  }, [lessonId]);
+
+  useEffect(() => {
+    if (!jobId || jobStatus === "done" || jobStatus === "error") return;
+    const token = getToken();
+    if (!token) return;
+    const key = `repetcrm:hw_job:${lessonId}`;
+
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const j = await api.lessons.getJob(token, jobId);
+        if (cancelled) return;
+        setJobStatus(j.status);
+        if (j.status === "done") {
+          window.localStorage.removeItem(key);
+          const hwId = j.result?.homework_id;
+          if (hwId) {
+            setHomeworkId(hwId);
+            // reload lesson + preview
+            load();
+          }
+          setSuccess(j.result?.generation_hint || "Домашнее задание готово.");
+        } else if (j.status === "error") {
+          window.localStorage.removeItem(key);
+          setError(j.error || "Ошибка генерации");
+        }
+      } catch (e) {
+        // ignore transient polling errors
+      }
+    };
+
+    tick();
+    const t = window.setInterval(tick, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [jobId, jobStatus, lessonId, load]);
 
   useEffect(() => {
     const wt =
@@ -183,26 +235,12 @@ export default function LessonDetailPage() {
         setGenerating(false);
         return;
       }
-      const hw = await api.lessons.generateHomework<{
-        id: number;
-        homework_text: string;
-        generation_source?: string;
-        generation_hint?: string;
-        configured_provider?: string;
-        configured_model?: string;
-      }>(token, lessonId);
-      setHomeworkHtml(hw.homework_text);
-      setHomeworkId(hw.id);
-      setHomeworkView("preview");
-      if (hw.id) {
-        api.homework
-          .previewHtml(token, hw.id)
-          .then((p) => setHomeworkDisplayHtml(p.html))
-          .catch(() => setHomeworkDisplayHtml(hw.homework_text));
-      }
-      // Keep UX simple: no internal provider/debug details in UI.
-      setSuccess(hw.generation_hint || "Домашнее задание готово.");
-      load();
+      const started = await api.lessons.startHomeworkJob(token, lessonId);
+      const key = `repetcrm:hw_job:${lessonId}`;
+      window.localStorage.setItem(key, started.job_id);
+      setJobId(started.job_id);
+      setJobStatus(started.status === "running" ? "running" : "queued");
+      setJobHint("Генерируем домашнее задание в фоне — можно закрыть вкладку, результат сохранится.");
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Ошибка генерации";
       setError(msg);
@@ -283,9 +321,27 @@ export default function LessonDetailPage() {
     }, 9000);
 
     try {
-      const res = await fetch(api.homework.pdfUrl(homeworkId), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const tryFetchPdf = async () => {
+        return await fetch(api.homework.pdfUrl(homeworkId), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      };
+
+      let res = await tryFetchPdf();
+      if (res.status === 202) {
+        const started = (await res.json()) as { job_id: string };
+        setPdfStatus("Собираем PDF в фоне…");
+        const jobId = started.job_id;
+        const deadline = Date.now() + 3 * 60_000;
+        while (Date.now() < deadline) {
+          const j = await api.lessons.getJob(token, jobId);
+          if (j.status === "done") break;
+          if (j.status === "error") throw new Error(j.error || "Ошибка сборки PDF");
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+        res = await tryFetchPdf();
+      }
+
       if (!res.ok) {
         let msg = "Ошибка генерации PDF";
         try {
@@ -297,6 +353,7 @@ export default function LessonDetailPage() {
         setError(typeof msg === "string" ? msg : "Ошибка генерации PDF");
         return;
       }
+
       setPdfStatus("Скачиваем файл…");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -541,7 +598,12 @@ export default function LessonDetailPage() {
         </div>
         {generating && (
           <p className="mt-3 text-sm text-slate-500">
-            OpenRouter: обычно 10–40 сек. Не закрывайте страницу.
+            Запрос принят. Сейчас запустим генерацию…
+          </p>
+        )}
+        {jobId && (jobStatus === "queued" || jobStatus === "running") && (
+          <p className="mt-3 text-sm text-slate-500">
+            {jobStatus === "queued" ? "В очереди…" : "Генерируем…"} {jobHint}
           </p>
         )}
         </>
