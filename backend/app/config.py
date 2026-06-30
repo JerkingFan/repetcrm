@@ -35,6 +35,10 @@ _ENV_FILE_KEYS = {
     "ACCESS_TOKEN_EXPIRE_MINUTES": "access_token_expire_minutes",
     "BOARD_ASSET_MAX_BYTES": "board_asset_max_bytes",
     "BOARD_PERSIST_DEBOUNCE_SEC": "board_persist_debounce_sec",
+    "JOB_TTL_SEC": "job_ttl_sec",
+    "JOB_RETENTION_SEC": "job_retention_sec",
+    "AI_GLOBAL_CONCURRENCY": "ai_global_concurrency",
+    "OPENROUTER_MAX_RETRIES": "openrouter_max_retries",
 }
 
 
@@ -93,6 +97,10 @@ class Settings(BaseSettings):
     auth_register_window_sec: int = 3600
     board_asset_max_bytes: int = 10 * 1024 * 1024  # 10MB
     board_persist_debounce_sec: float = 6.0
+    job_ttl_sec: int = 600
+    job_retention_sec: int = 3600
+    ai_global_concurrency: int = 8
+    openrouter_max_retries: int = 3
 
     @property
     def ollama_generate_url(self) -> str:
@@ -146,6 +154,10 @@ def get_settings() -> Settings:
             "db_pool_timeout",
             "db_pool_recycle",
             "dashboard_cache_ttl_sec",
+            "job_ttl_sec",
+            "job_retention_sec",
+            "ai_global_concurrency",
+            "openrouter_max_retries",
         ):
             updates[field] = float(v) if "." in v else int(v)
         elif field in ("auth_login_fail_delay_sec", "board_persist_debounce_sec"):

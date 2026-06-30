@@ -41,6 +41,7 @@ from app.services.dashboard_cache import (
 )
 from app.services.job_queue import job_queue
 from app.services.smart_homework import generate_smart_homework_latex
+from app.services.pdf import invalidate_homework_pdf
 
 router = APIRouter(tags=["lessons"])
 
@@ -368,6 +369,7 @@ async def generate_lesson_homework(
         db.add(hw)
     db.commit()
     db.refresh(hw)
+    invalidate_homework_pdf(hw.id)
     return HomeworkOut(
         id=hw.id,
         lesson_id=hw.lesson_id,
@@ -459,6 +461,7 @@ async def start_generate_homework_job(
                 db2.add(hw2)
             db2.commit()
             db2.refresh(hw2)
+            invalidate_homework_pdf(hw2.id)
             return {
                 "homework_id": hw2.id,
                 "generation_source": source,

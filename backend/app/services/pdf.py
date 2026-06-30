@@ -3,7 +3,7 @@
 import logging
 import os
 import re
-from datetime import date
+from datetime import date, datetime
 
 from app.config import settings
 from app.services.homework_output import (
@@ -25,6 +25,28 @@ logger = logging.getLogger(__name__)
 
 def ensure_media_dir():
     os.makedirs(settings.media_dir, exist_ok=True)
+
+
+def homework_pdf_path(homework_id: int) -> str:
+    return os.path.join(settings.media_dir, f"homework_{homework_id}.pdf")
+
+
+def invalidate_homework_pdf(homework_id: int) -> None:
+    cached = homework_pdf_path(homework_id)
+    if os.path.isfile(cached):
+        try:
+            os.remove(cached)
+        except OSError:
+            pass
+
+
+def homework_pdf_cache_fresh(cached: str, updated_at: datetime | None) -> bool:
+    if not os.path.isfile(cached) or os.path.getsize(cached) <= 200:
+        return False
+    if updated_at is None:
+        return True
+    cache_mtime = datetime.utcfromtimestamp(os.path.getmtime(cached))
+    return cache_mtime >= updated_at
 
 
 def _font_paths() -> tuple[str, str]:
@@ -119,7 +141,7 @@ def generate_homework_pdf(
     homework_prefs: dict | None = None,
 ) -> str:
     ensure_media_dir()
-    path = os.path.join(settings.media_dir, f"homework_{homework_id}.pdf")
+    path = homework_pdf_path(homework_id)
 
     text = homework_text
     if checklist and (

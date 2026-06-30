@@ -19,6 +19,7 @@ import Alert from "@/components/Alert";
 import LessonHomeworkForm from "@/components/LessonHomeworkForm";
 import { defaultHomeworkPrefs, HomeworkPrefs } from "@/lib/homeworkPrefs";
 import { formatMoney } from "@/lib/currency";
+import { pollJobUntilDone, JOB_POLL_INTERVAL_MS, JOB_TIMEOUT_MS } from "@/lib/jobPoll";
 
 type ChecklistRow = {
   topic: string;
@@ -127,31 +128,46 @@ export default function LessonDetailPage() {
     const key = `repetcrm:hw_job:${lessonId}`;
 
     let cancelled = false;
+    const startedAt = Date.now();
+
     const tick = async () => {
+      if (Date.now() - startedAt > JOB_TIMEOUT_MS) {
+        window.localStorage.removeItem(key);
+        setJobStatus("error");
+        setGenerating(false);
+        setError("Превышено время ожидания (3 мин). Попробуйте снова.");
+        return;
+      }
       try {
         const j = await api.lessons.getJob(token, jobId);
         if (cancelled) return;
         setJobStatus(j.status);
         if (j.status === "done") {
           window.localStorage.removeItem(key);
+          setGenerating(false);
           const hwId = j.result?.homework_id;
           if (hwId) {
             setHomeworkId(hwId);
-            // reload lesson + preview
             load();
           }
           setSuccess(j.result?.generation_hint || "Домашнее задание готово.");
         } else if (j.status === "error") {
           window.localStorage.removeItem(key);
+          setGenerating(false);
           setError(j.error || "Ошибка генерации");
         }
       } catch (e) {
-        // ignore transient polling errors
+        if (e instanceof ApiError && e.status === 404) {
+          window.localStorage.removeItem(key);
+          setJobStatus("error");
+          setGenerating(false);
+          setError("Задача не найдена (сервер перезапущен). Нажмите «Сгенерировать» снова.");
+        }
       }
     };
 
     tick();
-    const t = window.setInterval(tick, 1500);
+    const t = window.setInterval(tick, JOB_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.clearInterval(t);
@@ -331,13 +347,12 @@ export default function LessonDetailPage() {
       if (res.status === 202) {
         const started = (await res.json()) as { job_id: string };
         setPdfStatus("Собираем PDF в фоне…");
-        const jobId = started.job_id;
-        const deadline = Date.now() + 3 * 60_000;
-        while (Date.now() < deadline) {
-          const j = await api.lessons.getJob(token, jobId);
-          if (j.status === "done") break;
-          if (j.status === "error") throw new Error(j.error || "Ошибка сборки PDF");
-          await new Promise((r) => setTimeout(r, 1500));
+        const polled = await pollJobUntilDone(token, started.job_id, (status) => {
+          if (status === "running") setPdfStatus("Компилируем формулы (LaTeX)…");
+        });
+        if (!polled.ok) {
+          setError(polled.error || "Ошибка сборки PDF");
+          return;
         }
         res = await tryFetchPdf();
       }

@@ -6,7 +6,6 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-repetcrm}
-      # Нужен только с --profile postgres; при SQLite можно не задавать
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-repetcrm}
     volumes:
@@ -17,8 +16,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    profiles:
-      - postgres
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   backend:
     build:
@@ -30,17 +37,23 @@ services:
     env_file:
       - .env.production
     environment:
-      DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/repetcrm.db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://repetcrm:changeme@db:5432/repetcrm}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       MEDIA_DIR: /app/media
     volumes:
-      - backend_data:/app/data
       - backend_media:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
+
   frontend:
     build:
       context: ./frontend
@@ -57,5 +70,4 @@ services:
 
 volumes:
   postgres_data:
-  backend_data:
   backend_media:

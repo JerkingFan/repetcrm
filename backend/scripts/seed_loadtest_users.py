@@ -147,9 +147,18 @@ def cleanup(*, count: int) -> int:
             )
             .all()
         )
-        for user in users:
-            db.delete(user)
-            deleted += 1
+        user_ids = [u.id for u in users]
+        if user_ids:
+            # User.students has no ORM cascade — delete children explicitly
+            db.query(Lesson).filter(Lesson.tutor_id.in_(user_ids)).delete(
+                synchronize_session=False
+            )
+            db.query(Student).filter(Student.tutor_id.in_(user_ids)).delete(
+                synchronize_session=False
+            )
+            for user in users:
+                db.delete(user)
+                deleted += 1
         db.commit()
     finally:
         db.close()

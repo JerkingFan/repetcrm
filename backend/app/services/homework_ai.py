@@ -165,8 +165,11 @@ async def generate_homework_ai(
                 student_name, subject, checklist, grade, prefs
             )
             return content, "openrouter", f"Модель {cfg.openrouter_model}"
-        except OpenRouterError:
-            raise
+        except OpenRouterError as e:
+            if not settings.ai_allow_template_fallback:
+                raise
+            reject_reason = str(e)
+            logger.warning("OpenRouter failed (fallback enabled): %s", e)
         except ValueError as e:
             reject_reason = str(e)
             logger.warning("OpenRouter: LaTeX не принят — fallback (%s)", e)

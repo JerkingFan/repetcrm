@@ -240,6 +240,23 @@ export const api = {
       return all;
     },
     get: <T = unknown>(token: string, id: number) => request<T>(`/students/${id}`, {}, token),
+    listLessons: (
+      token: string,
+      id: number,
+      params?: { page?: number; page_size?: number }
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.page) qs.set("page", String(params.page));
+      if (params?.page_size) qs.set("page_size", String(params.page_size));
+      const query = qs.toString();
+      return request<{
+        items: Array<{ id: number; lesson_date: string; homework_id?: number | null }>;
+        total: number;
+        page: number;
+        page_size: number;
+        has_more: boolean;
+      }>(`/students/${id}/lessons${query ? `?${query}` : ""}`, {}, token);
+    },
     create: (token: string, data: Partial<StudentListItem> & { name: string }) =>
       request("/students", { method: "POST", body: JSON.stringify(data) }, token),
     update: (token: string, id: number, data: Partial<StudentListItem>) =>

@@ -1,4 +1,4 @@
-import os
+import asyncio
 
 from fastapi.responses import JSONResponse
 
@@ -18,8 +18,14 @@ from app.services.latex_convert import (
     latex_to_python_expression,
     process_homework_html,
 )
-from app.services.pdf import generate_homework_pdf
+from app.services.pdf import (
+    generate_homework_pdf,
+    homework_pdf_cache_fresh,
+    homework_pdf_path,
+    invalidate_homework_pdf,
+)
 from app.services.job_queue import job_queue
+
 
 router = APIRouter(prefix="/homework", tags=["homework"])
 
@@ -150,6 +156,7 @@ def update_homework(
     hw.homework_text = data.homework_text
     db.commit()
     db.refresh(hw)
+    invalidate_homework_pdf(hw.id)
     return HomeworkOut(
         id=hw.id,
         lesson_id=hw.lesson_id,
@@ -182,9 +189,8 @@ async def download_pdf(homework_id: int, user: User = Depends(get_current_user),
         ],
         prefs,
     )
-    media_root = os.environ.get("MEDIA_DIR") or "./media"
-    cached = os.path.join(media_root, f"homework_{hw.id}.pdf")
-    if os.path.isfile(cached) and os.path.getsize(cached) > 200:
+    cached = homework_pdf_path(hw.id)
+    if homework_pdf_cache_fresh(cached, hw.updated_at):
         path = cached
     else:
         # Start background build and ask client to poll.
@@ -210,7 +216,8 @@ async def download_pdf(homework_id: int, user: User = Depends(get_current_user),
                     ],
                     prefs2,
                 )
-                path2 = generate_homework_pdf(
+                path2 = await asyncio.to_thread(
+                    generate_homework_pdf,
                     hw2.id,
                     lesson2.student.name,
                     lesson2.lesson_date,

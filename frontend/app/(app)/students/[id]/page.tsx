@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -15,32 +15,52 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 import StudentBoundariesPanel from "@/components/StudentBoundariesPanel";
 import BoundaryModeBadge from "@/components/BoundaryModeBadge";
 import { toast } from "@/lib/toast";
+import { pollJobUntilDone } from "@/lib/jobPoll";
 
-type StudentDetail = StudentRecord & {
-  lessons: Array<{
-    id: number;
-    lesson_date: string;
-    homework?: { id: number; homework_text: string };
-    student_name?: string;
-  }>;
+type LessonHistoryItem = {
+  id: number;
+  lesson_date: string;
+  homework_id?: number | null;
 };
 
 export default function StudentDetailPage() {
   const params = useParams();
   const id = Number(params.id);
-  const [data, setData] = useState<StudentDetail | null>(null);
+  const [data, setData] = useState<StudentRecord | null>(null);
+  const [lessons, setLessons] = useState<LessonHistoryItem[]>([]);
+  const [lessonsPage, setLessonsPage] = useState(1);
+  const [hasMoreLessons, setHasMoreLessons] = useState(false);
+  const [lessonsLoading, setLessonsLoading] = useState(true);
   const [token, setToken] = useState<string | null>(null);
 
-  const loadStudent = () => {
+  const loadStudent = useCallback(() => {
     const t = getToken();
     if (!t) return;
     setToken(t);
-    api.students.get<StudentDetail>(t, id).then(setData);
-  };
+    api.students.get<StudentRecord>(t, id).then(setData);
+  }, [id]);
+
+  const loadLessons = useCallback(
+    async (page: number, append: boolean) => {
+      const t = getToken();
+      if (!t) return;
+      setLessonsLoading(true);
+      try {
+        const res = await api.students.listLessons(t, id, { page, page_size: 20 });
+        setLessons((prev) => (append ? [...prev, ...res.items] : res.items));
+        setHasMoreLessons(res.has_more);
+        setLessonsPage(page);
+      } finally {
+        setLessonsLoading(false);
+      }
+    },
+    [id]
+  );
 
   useEffect(() => {
     loadStudent();
-  }, [id]);
+    loadLessons(1, false);
+  }, [loadStudent, loadLessons]);
 
   const downloadPdf = async (homeworkId: number) => {
     const token = getToken();
@@ -54,13 +74,10 @@ export default function StudentDetailPage() {
     let res = await tryFetchPdf();
     if (res.status === 202) {
       const started = (await res.json()) as { job_id: string };
-      const jobId = started.job_id;
-      const deadline = Date.now() + 3 * 60_000;
-      while (Date.now() < deadline) {
-        const j = await api.lessons.getJob(token, jobId);
-        if (j.status === "done") break;
-        if (j.status === "error") throw new Error(j.error || "Ошибка сборки PDF");
-        await new Promise((r) => setTimeout(r, 1500));
+      const polled = await pollJobUntilDone(token, started.job_id);
+      if (!polled.ok) {
+        toast(polled.error || "Ошибка сборки PDF", "error");
+        return;
       }
       res = await tryFetchPdf();
     }
@@ -146,8 +163,8 @@ export default function StudentDetailPage() {
 
       <h2 className="mt-10 text-lg font-semibold">История занятий и домашек</h2>
       <div className="mt-6 space-y-4">
-        {data.lessons?.length ? (
-          data.lessons.map((l) => (
+        {lessons.length ? (
+          lessons.map((l) => (
             <div
               key={l.id}
               className="p-5 rounded-2xl bg-white border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
@@ -163,9 +180,9 @@ export default function StudentDetailPage() {
                   Открыть урок →
                 </Link>
               </div>
-              {l.homework ? (
+              {l.homework_id ? (
                 <button
-                  onClick={() => downloadPdf(l.homework!.id)}
+                  onClick={() => downloadPdf(l.homework_id!)}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-blue text-white text-sm hover:bg-blue-900"
                 >
                   <ArrowDownTrayIcon className="w-4 h-4" />
@@ -176,8 +193,19 @@ export default function StudentDetailPage() {
               )}
             </div>
           ))
-        ) : (
+        ) : !lessonsLoading ? (
           <p className="text-slate-500">Занятий пока нет</p>
+        ) : null}
+        {lessonsLoading && lessons.length === 0 && <LoadingSpinner label="Загрузка занятий..." />}
+        {hasMoreLessons && (
+          <button
+            type="button"
+            onClick={() => loadLessons(lessonsPage + 1, true)}
+            disabled={lessonsLoading}
+            className="w-full py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {lessonsLoading ? "Загрузка…" : "Показать ещё"}
+          </button>
         )}
       </div>
     </div>

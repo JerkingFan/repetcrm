@@ -1,16 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import User, Student, Lesson
+from app.models import User, Student, Lesson, Homework
 from app.schemas import (
     StudentCreate,
     StudentUpdate,
     StudentOut,
     StudentListPage,
-    StudentWithLessons,
-    LessonOut,
+    StudentLessonsPage,
+    StudentLessonHistoryItem,
     StudentBoundariesOut,
     BoundaryApplyIn,
     BoundaryMessageOut,
@@ -35,26 +35,6 @@ def _parse_mode(raw: str | None) -> StudentBoundaryMode:
     except ValueError:
         return StudentBoundaryMode.normal
 
-
-def lesson_to_out(lesson) -> LessonOut:
-    return LessonOut(
-        id=lesson.id,
-        student_id=lesson.student_id,
-        lesson_date=lesson.lesson_date,
-        lesson_time=getattr(lesson, "lesson_time", None) or "10:00",
-        duration_minutes=lesson.duration_minutes,
-        payment_amount=lesson.payment_amount,
-        is_paid=lesson.is_paid,
-        is_conducted=bool(getattr(lesson, "is_conducted", False)),
-        status=getattr(lesson, "status", "scheduled") or "scheduled",
-        late_minutes=int(getattr(lesson, "late_minutes", 0) or 0),
-        rescheduled_from_lesson_id=getattr(lesson, "rescheduled_from_lesson_id", None),
-        notes=lesson.notes,
-        created_at=lesson.created_at,
-        student_name=lesson.student.name if lesson.student else None,
-        checklist_items=lesson.checklist_items,
-        homework=lesson.homework,
-    )
 
 @router.get("", response_model=StudentListPage)
 def list_students(
@@ -89,34 +69,63 @@ def create_student(data: StudentCreate, user: User = Depends(get_current_user), 
     return student
 
 
-@router.get("/{student_id}", response_model=StudentWithLessons)
+@router.get("/{student_id}", response_model=StudentOut)
 def get_student(student_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     student = (
         db.query(Student)
-        .options(
-            joinedload(Student.lessons).joinedload(Lesson.checklist_items),
-            joinedload(Student.lessons).joinedload(Lesson.homework),
-        )
         .filter(Student.id == student_id, Student.tutor_id == user.id)
         .first()
     )
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
-    lessons_out = [lesson_to_out(l) for l in sorted(student.lessons, key=lambda x: x.lesson_date, reverse=True)]
-    return StudentWithLessons(
-        id=student.id,
-        name=student.name,
-        subject=student.subject,
-        contact=student.contact,
-        created_at=student.created_at,
-        grade=student.grade,
-        school=student.school,
-        parent_contact=student.parent_contact,
-        notes=student.notes,
-        boundary_mode=getattr(student, "boundary_mode", "normal"),
-        boundary_reason=getattr(student, "boundary_reason", ""),
-        boundary_updated_at=getattr(student, "boundary_updated_at", None),
-        lessons=lessons_out,
+    return student
+
+
+@router.get("/{student_id}/lessons", response_model=StudentLessonsPage)
+def list_student_lessons(
+    student_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    base = db.query(Lesson).filter(Lesson.tutor_id == user.id, Lesson.student_id == student_id)
+    total = base.count()
+    offset = (page - 1) * page_size
+    rows = (
+        base.order_by(Lesson.lesson_date.desc(), Lesson.id.desc())
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
+    lesson_ids = [r.id for r in rows]
+    homework_by_lesson: dict[int, int] = {}
+    if lesson_ids:
+        for hw_id, lesson_id in (
+            db.query(Homework.id, Homework.lesson_id)
+            .filter(Homework.lesson_id.in_(lesson_ids))
+            .all()
+        ):
+            homework_by_lesson[lesson_id] = hw_id
+
+    items = [
+        StudentLessonHistoryItem(
+            id=lesson.id,
+            lesson_date=lesson.lesson_date,
+            homework_id=homework_by_lesson.get(lesson.id),
+        )
+        for lesson in rows
+    ]
+    return StudentLessonsPage(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        has_more=offset + len(rows) < total,
     )
 
 

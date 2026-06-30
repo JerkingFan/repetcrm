@@ -263,6 +263,20 @@ class HomeworkJobOut(BaseModel):
     error: str | None = None
 
 
+class StudentLessonHistoryItem(BaseModel):
+    id: int
+    lesson_date: date
+    homework_id: Optional[int] = None
+
+
+class StudentLessonsPage(BaseModel):
+    items: list[StudentLessonHistoryItem]
+    total: int
+    page: int
+    page_size: int
+    has_more: bool
+
+
 # Dashboard
 class DashboardStats(BaseModel):
     students_count: int

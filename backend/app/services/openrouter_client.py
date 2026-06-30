@@ -1,6 +1,8 @@
 """Генерация домашки через OpenRouter (OpenAI-совместимый API)."""
 
+import asyncio
 import logging
+import random
 
 import httpx
 
@@ -69,21 +71,64 @@ async def _call_openrouter(messages: list[dict]) -> str:
         "max_tokens": cfg.openrouter_max_tokens,
     }
     url = f"{cfg.openrouter_base_url.rstrip('/')}/chat/completions"
-    async with httpx.AsyncClient(timeout=cfg.openrouter_timeout_sec) as client:
-        response = await client.post(url, headers=_headers(), json=payload)
-        if response.status_code == 401:
-            raise OpenRouterError("Неверный OPENROUTER_API_KEY")
-        if response.status_code == 402:
-            raise OpenRouterError("Недостаточно средств на OpenRouter")
-        response.raise_for_status()
-        data = response.json()
-    choices = data.get("choices") or []
-    if not choices:
-        raise OpenRouterError("Пустой ответ OpenRouter")
-    raw = (choices[0].get("message") or {}).get("content") or ""
-    if not raw.strip():
-        raise OpenRouterError("Пустой текст от OpenRouter")
-    return raw
+    max_retries = max(1, cfg.openrouter_max_retries)
+    last_error: Exception | None = None
+
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=cfg.openrouter_timeout_sec) as client:
+                response = await client.post(url, headers=_headers(), json=payload)
+                if response.status_code == 401:
+                    raise OpenRouterError("Неверный OPENROUTER_API_KEY")
+                if response.status_code == 402:
+                    raise OpenRouterError("Недостаточно средств на OpenRouter")
+                if response.status_code in (429, 502, 503, 504):
+                    if attempt < max_retries - 1:
+                        delay = min(30.0, (2**attempt) + random.uniform(0, 0.5))
+                        logger.warning(
+                            "OpenRouter HTTP %s, retry %s/%s in %.1fs",
+                            response.status_code,
+                            attempt + 1,
+                            max_retries,
+                            delay,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    raise OpenRouterError(
+                        f"OpenRouter перегружен (HTTP {response.status_code}). Попробуйте позже."
+                    )
+                response.raise_for_status()
+                data = response.json()
+            choices = data.get("choices") or []
+            if not choices:
+                raise OpenRouterError("Пустой ответ OpenRouter")
+            raw = (choices[0].get("message") or {}).get("content") or ""
+            if not raw.strip():
+                raise OpenRouterError("Пустой текст от OpenRouter")
+            return raw
+        except OpenRouterError:
+            raise
+        except httpx.TimeoutException as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                await asyncio.sleep((2**attempt) + random.uniform(0, 0.3))
+                continue
+            raise OpenRouterError("Таймаут OpenRouter — попробуйте ещё раз") from e
+        except httpx.HTTPStatusError as e:
+            last_error = e
+            if attempt < max_retries - 1 and e.response is not None and e.response.status_code >= 500:
+                await asyncio.sleep((2**attempt) + random.uniform(0, 0.3))
+                continue
+            detail = e.response.text[:300] if e.response else str(e)
+            raise OpenRouterError(f"OpenRouter HTTP {e.response.status_code}: {detail}") from e
+        except httpx.HTTPError as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                await asyncio.sleep((2**attempt) + random.uniform(0, 0.3))
+                continue
+            raise OpenRouterError(f"Ошибка сети OpenRouter: {e}") from e
+
+    raise OpenRouterError(f"OpenRouter недоступен: {last_error}")
 
 
 async def generate_homework_with_openrouter(
