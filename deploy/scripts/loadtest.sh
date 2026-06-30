@@ -36,6 +36,31 @@ TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
 mkdir -p "$RESULTS_DIR"
 
+wait_for_health() {
+  local url="$1/health"
+  local max_attempts="${HEALTH_RETRIES:-30}"
+  local sleep_sec="${HEALTH_SLEEP:-2}"
+  echo "==> Health check: $url (up to $((max_attempts * sleep_sec))s)"
+  for ((i = 1; i <= max_attempts; i++)); do
+    if curl -sf "$url" >/dev/null 2>&1; then
+      echo "    OK (attempt $i)"
+      return 0
+    fi
+    if [[ "$i" -eq 1 ]]; then
+      echo -n "    waiting"
+    else
+      echo -n "."
+    fi
+    sleep "$sleep_sec"
+  done
+  echo ""
+  echo "Backend not reachable at $BASE_URL"
+  echo "Hint:"
+  echo "  docker compose -f docker-compose.prod.yml --env-file .env.production ps"
+  echo "  docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail 40 backend"
+  return 1
+}
+
 if [[ "${1:-}" == "--cleanup" ]]; then
   echo "==> Removing loadtest users (*@${LOADTEST_EMAIL_DOMAIN:-loadtest.local})..."
   "${COMPOSE[@]}" exec -T backend python scripts/seed_loadtest_users.py \
@@ -67,11 +92,7 @@ if [[ "$SCENARIO" == "smoke" ]]; then
   SEED_LESSONS=3
 fi
 
-echo "==> Health check: $BASE_URL/health"
-if ! curl -sf "$BASE_URL/health" >/dev/null; then
-  echo "Backend not reachable at $BASE_URL — start stack first."
-  exit 1
-fi
+wait_for_health "$BASE_URL"
 
 echo "==> Seeding $SEED_TUTORS tutors × $SEED_STUDENTS students × $SEED_LESSONS lessons..."
 "${COMPOSE[@]}" exec -T backend python scripts/seed_loadtest_users.py \
