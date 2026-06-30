@@ -1,6 +1,6 @@
+import asyncio
 import logging
 import random
-import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
@@ -124,7 +124,7 @@ def register(
 
 
 @router.post("/login", response_model=Token)
-def login(data: UserLogin, request: Request, response: Response, db: Session = Depends(get_db)):
+async def login(data: UserLogin, request: Request, response: Response, db: Session = Depends(get_db)):
     cfg = get_settings()
     ip = get_client_ip(request)
     rate_key = _login_rate_key(ip, data.email)
@@ -150,7 +150,7 @@ def login(data: UserLogin, request: Request, response: Response, db: Session = D
         failures = login_limiter.record(rate_key)
         delay = cfg.auth_login_fail_delay_sec
         if delay > 0:
-            time.sleep(delay + random.uniform(0, min(0.3, delay)))
+            await asyncio.sleep(delay + random.uniform(0, min(0.3, delay)))
         logger.warning(
             "auth_login_failed ip=%s email=%s fp=%s failures_in_window=%s",
             ip,

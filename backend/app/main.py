@@ -8,10 +8,11 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import init_db
-from app.redis_client import close_redis
+from app.redis_client import close_redis, get_redis
 from app.routers import auth_router, students, lessons, homework, ai
 from app.routers import boards
 from app.services.homework_ai import get_ai_status
+from app.services.job_store import recover_stale_jobs
 from app.services.openrouter_client import is_configured as openrouter_configured
 from app.services.local_llm import local_model_available, preload_model_background
 
@@ -22,6 +23,10 @@ async def lifespan(app: FastAPI):
     cfg = get_settings()
     os.makedirs(cfg.media_dir, exist_ok=True)
     init_db()
+    get_redis()
+    recovered = recover_stale_jobs()
+    if recovered:
+        print(f"[jobs] marked {recovered} stale job(s) after restart")
     print("[AI] API ready; provider check runs in background")
 
     async def _log_ai_status() -> None:
@@ -77,4 +82,8 @@ app.include_router(boards.router)
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    redis = get_redis()
+    return {
+        "status": "ok",
+        "redis": "connected" if redis is not None else "disabled",
+    }

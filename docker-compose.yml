@@ -1,4 +1,15 @@
 services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   ollama:
     image: ollama/ollama:latest
     ports:
@@ -35,10 +46,13 @@ services:
       CORS_ALLOW_LOCALHOST_REGEX: "true"
       MEDIA_DIR: ./media
       AI_ALLOW_TEMPLATE_FALLBACK: "true"
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - backend_data:/app/data
       - backend_media:/app/media
     depends_on:
+      redis:
+        condition: service_healthy
       ollama-pull:
         condition: service_completed_successfully
     restart: unless-stopped

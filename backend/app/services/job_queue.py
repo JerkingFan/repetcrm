@@ -3,37 +3,19 @@ from __future__ import annotations
 import asyncio
 import secrets
 import time
-from dataclasses import dataclass
-from typing import Any, Literal
 
 from app.config import get_settings
+from app.services import job_store
+from app.services.job_types import Job
 
 
-JobStatus = Literal["queued", "running", "done", "error"]
-
-
-@dataclass
-class Job:
-    id: str
-    type: str
-    status: JobStatus
-    created_at_ms: int
-    updated_at_ms: int
-    owner_user_id: int
-    lesson_id: int | None = None
-    homework_id: int | None = None
-    result: dict[str, Any] | None = None
-    error: str | None = None
-    expires_at_ms: int = 0
-
-
-class InMemoryJobQueue:
+class JobQueue:
     """
-    MVP job queue (single process):
-    - TTL for active jobs (no infinite spinners)
-    - retention cleanup for finished jobs
+    Background job queue (single API process):
+    - Redis persistence when REDIS_URL is set
+    - TTL for active jobs
     - global AI concurrency cap
-  """
+    """
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
@@ -60,6 +42,14 @@ class InMemoryJobQueue:
     def _new_id(self) -> str:
         return secrets.token_urlsafe(16)
 
+    def _parse_active_key(self, key: tuple[int, str]) -> tuple[int, str, int]:
+        owner_user_id, composite = key
+        key_type, key_value_raw = composite.split(":", 1)
+        return owner_user_id, key_type, int(key_value_raw)
+
+    def _persist(self, job: Job) -> None:
+        job_store.save_job(job)
+
     def _expire_if_needed(self, job: Job) -> None:
         if job.status not in ("queued", "running"):
             return
@@ -67,6 +57,7 @@ class InMemoryJobQueue:
             job.status = "error"
             job.error = "Превышено время ожидания. Попробуйте снова."
             job.updated_at_ms = self._now_ms()
+            self._persist(job)
 
     def _prune_finished(self) -> None:
         cutoff = self._now_ms() - self._retention_ms()
@@ -82,11 +73,17 @@ class InMemoryJobQueue:
         for key, jid in list(self._active_by_key.items()):
             if jid == job.id:
                 self._active_by_key.pop(key, None)
+                owner_user_id, key_type, key_value = self._parse_active_key(key)
+                job_store.clear_active(owner_user_id, key_type, key_value)
 
     async def get(self, job_id: str) -> Job | None:
         async with self._lock:
             self._prune_finished()
             job = self._jobs.get(job_id)
+            if job is None:
+                job = job_store.load_job(job_id)
+                if job is not None:
+                    self._jobs[job_id] = job
             if not job:
                 return None
             self._expire_if_needed(job)
@@ -97,6 +94,31 @@ class InMemoryJobQueue:
     async def _set(self, job: Job) -> None:
         async with self._lock:
             self._jobs[job.id] = job
+        self._persist(job)
+
+    async def _find_active_job(self, key: tuple[int, str]) -> Job | None:
+        existing_id = self._active_by_key.get(key)
+        if not existing_id:
+            owner_user_id, key_type, key_value = self._parse_active_key(key)
+            existing_id = job_store.get_active(owner_user_id, key_type, key_value)
+            if existing_id:
+                self._active_by_key[key] = existing_id
+
+        if not existing_id:
+            return None
+
+        existing = self._jobs.get(existing_id)
+        if existing is None:
+            existing = job_store.load_job(existing_id)
+            if existing is not None:
+                self._jobs[existing_id] = existing
+        if not existing:
+            return None
+
+        self._expire_if_needed(existing)
+        if existing.status in ("queued", "running"):
+            return existing
+        return None
 
     async def enqueue_unique(
         self,
@@ -107,20 +129,12 @@ class InMemoryJobQueue:
         job_type: str,
         coro_factory,
     ) -> Job:
-        """
-        If a job with the same (owner, key_type) is active, returns it.
-        Otherwise creates a new job and schedules its coroutine.
-        """
         key = (owner_user_id, f"{key_type}:{key_value}")
         async with self._lock:
             self._prune_finished()
-            existing_id = self._active_by_key.get(key)
-            if existing_id:
-                existing = self._jobs.get(existing_id)
-                if existing and existing.status in ("queued", "running"):
-                    self._expire_if_needed(existing)
-                    if existing.status in ("queued", "running"):
-                        return existing
+            existing = await self._find_active_job(key)
+            if existing:
+                return existing
 
             job_id = self._new_id()
             now = self._now_ms()
@@ -137,6 +151,8 @@ class InMemoryJobQueue:
             )
             self._jobs[job_id] = job
             self._active_by_key[key] = job_id
+            job_store.set_active(owner_user_id, key_type, key_value, job_id)
+            self._persist(job)
 
         async def _runner():
             sem = self._semaphores.setdefault(owner_user_id, asyncio.Semaphore(1))
@@ -166,9 +182,11 @@ class InMemoryJobQueue:
                     active = self._active_by_key.get(key)
                     if active == job.id:
                         self._active_by_key.pop(key, None)
+                        owner_user_id, key_type, key_value = self._parse_active_key(key)
+                        job_store.clear_active(owner_user_id, key_type, key_value)
 
         asyncio.create_task(_runner())
         return job
 
 
-job_queue = InMemoryJobQueue()
+job_queue = JobQueue()

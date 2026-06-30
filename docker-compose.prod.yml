@@ -1,4 +1,7 @@
 # Production: docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# ВАЖНО: реальные пользователи по умолчанию в SQLite volume backend_data.
+# Не переключайте на PostgreSQL без явной миграции данных!
 
 services:
   db:
@@ -16,6 +19,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    profiles:
+      - postgres
 
   redis:
     image: redis:7-alpine
@@ -26,6 +31,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    profiles:
+      - redis
 
   backend:
     build:
@@ -37,16 +44,12 @@ services:
     env_file:
       - .env.production
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://repetcrm:changeme@db:5432/repetcrm}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/repetcrm.db}
+      REDIS_URL: ${REDIS_URL:-}
       MEDIA_DIR: /app/media
     volumes:
+      - backend_data:/app/data
       - backend_media:/app/media
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
       interval: 10s
@@ -70,4 +73,5 @@ services:
 
 volumes:
   postgres_data:
+  backend_data:
   backend_media:
