@@ -36,6 +36,44 @@ TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
 mkdir -p "$RESULTS_DIR"
 
+preflight() {
+  if [[ ! -f "$ROOT/deploy/loadtest/k6/lib/users.js" ]]; then
+    echo "ERROR: missing deploy/loadtest/k6/lib/users.js"
+    echo "Run: git pull   (commit 353b579+ with loadtest fixes)"
+    exit 1
+  fi
+  if ! grep -q 'from "./lib/users.js"' "$ROOT/deploy/loadtest/k6/smoke.js" 2>/dev/null; then
+    echo "ERROR: deploy/loadtest/k6/smoke.js is outdated (still calls open() in VU code)"
+    echo "Run: git pull"
+    exit 1
+  fi
+
+  local seed_line seed_domain users_domain
+  seed_line=$("${COMPOSE[@]}" exec -T backend grep -m1 'LOADTEST_EMAIL_DOMAIN' scripts/seed_loadtest_users.py 2>/dev/null || true)
+  seed_domain="${seed_line#*=}"
+  seed_domain="${seed_domain//\"/}"
+  seed_domain="${seed_domain// /}"
+
+  if [[ "$seed_domain" == "loadtest.local" || -z "$seed_domain" ]]; then
+    echo "ERROR: backend container still uses seed domain '${seed_domain:-unknown}'"
+    echo "Rebuild backend so scripts/seed_loadtest_users.py is updated:"
+    echo "  docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build backend"
+    exit 1
+  fi
+
+  if [[ -f "$USERS_JSON" ]]; then
+    users_domain=$(grep -o '"domain"[[:space:]]*:[[:space:]]*"[^"]*"' "$USERS_JSON" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+    if [[ "$users_domain" == "loadtest.local" ]]; then
+      echo "ERROR: $USERS_JSON has legacy domain loadtest.local"
+      echo "Run: ./deploy/scripts/loadtest.sh --cleanup"
+      echo "Then re-run this script."
+      exit 1
+    fi
+  fi
+
+  echo "==> Preflight OK (seed domain: $seed_domain, k6 scripts: current)"
+}
+
 wait_for_health() {
   local url="$1/health"
   local max_attempts="${HEALTH_RETRIES:-30}"
@@ -92,6 +130,7 @@ if [[ "$SCENARIO" == "smoke" ]]; then
   SEED_LESSONS=3
 fi
 
+preflight
 wait_for_health "$BASE_URL"
 
 echo "==> Seeding $SEED_TUTORS tutors × $SEED_STUDENTS students × $SEED_LESSONS lessons..."
