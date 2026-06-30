@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
+from sqlalchemy import and_, case, func
 from sqlalchemy.orm import Session
 
 from app.models import Lesson, Student, LessonStatus, StudentBoundaryMode
@@ -70,48 +71,82 @@ def _default_thresholds() -> dict[str, int]:
     }
 
 
+def _count_boundary_signals(
+    db: Session, tutor_id: int, student_id: int, *, d30: date, d60: date, today: date
+) -> dict[str, int]:
+    cancelled = LessonStatus.cancelled.value
+    rescheduled = LessonStatus.rescheduled.value
+    no_show = LessonStatus.no_show.value
+
+    row = (
+        db.query(
+            func.coalesce(
+                func.sum(
+                    case(
+                        (and_(Lesson.status == rescheduled, Lesson.lesson_date >= d30), 1),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("reschedules_30d"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (and_(Lesson.status == no_show, Lesson.lesson_date >= d60), 1),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("no_show_60d"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (and_(Lesson.late_minutes >= 10, Lesson.lesson_date >= d30), 1),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("late_30d"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                Lesson.is_paid.is_(False),
+                                Lesson.lesson_date < today,
+                                Lesson.status != cancelled,
+                                Lesson.status != rescheduled,
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("unpaid_past"),
+        )
+        .filter(Lesson.tutor_id == tutor_id, Lesson.student_id == student_id)
+        .one()
+    )
+    return {
+        "reschedules_30d": int(row.reschedules_30d or 0),
+        "no_show_60d": int(row.no_show_60d or 0),
+        "late_30d": int(row.late_30d or 0),
+        "unpaid_past": int(row.unpaid_past or 0),
+    }
+
+
 def decide_boundary_mode(db: Session, tutor_id: int, student_id: int) -> BoundaryDecision:
     today = date.today()
     d30 = today - timedelta(days=30)
     d60 = today - timedelta(days=60)
     t = _default_thresholds()
 
-    lessons = (
-        db.query(Lesson)
-        .filter(Lesson.tutor_id == tutor_id, Lesson.student_id == student_id)
-        .all()
-    )
-
-    def in_range(ld: date, start: date) -> bool:
-        return ld >= start
-
-    reschedules_30d = sum(
-        1
-        for l in lessons
-        if l.status == LessonStatus.rescheduled.value and in_range(l.lesson_date, d30)
-    )
-    no_show_60d = sum(
-        1 for l in lessons if l.status == LessonStatus.no_show.value and in_range(l.lesson_date, d60)
-    )
-    late_30d = sum(
-        1
-        for l in lessons
-        if (l.late_minutes or 0) >= 10 and in_range(l.lesson_date, d30)
-    )
-    unpaid_past = sum(
-        1
-        for l in lessons
-        if (not l.is_paid)
-        and l.lesson_date < today
-        and l.status not in (LessonStatus.cancelled.value, LessonStatus.rescheduled.value)
-    )
-
-    signals = {
-        "reschedules_30d": reschedules_30d,
-        "no_show_60d": no_show_60d,
-        "late_30d": late_30d,
-        "unpaid_past": unpaid_past,
-    }
+    signals = _count_boundary_signals(db, tutor_id, student_id, d30=d30, d60=d60, today=today)
+    reschedules_30d = signals["reschedules_30d"]
+    no_show_60d = signals["no_show_60d"]
+    late_30d = signals["late_30d"]
+    unpaid_past = signals["unpaid_past"]
 
     # Determine strictest mode that matches.
     if unpaid_past >= t["unpaid_past_red"] or no_show_60d >= t["no_show_60d_red"]:

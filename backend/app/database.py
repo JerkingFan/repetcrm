@@ -144,9 +144,32 @@ def _ensure_performance_indexes():
         conn.commit()
 
 
+def _ensure_postgresql_search():
+    """pg_trgm GIN index for fast student name search (PostgreSQL only)."""
+    if not settings.database_url.startswith("postgresql"):
+        return
+    from sqlalchemy import inspect, text
+
+    if not inspect(engine).has_table("students"):
+        return
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_students_name_trgm "
+                    "ON students USING gin (name gin_trgm_ops)"
+                )
+            )
+            conn.commit()
+        except Exception:
+            pass
+
+
 def init_db():
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     _migrate_sqlite_columns()
     _ensure_performance_indexes()
+    _ensure_postgresql_search()

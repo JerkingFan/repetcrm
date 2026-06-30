@@ -12,7 +12,9 @@ from app.redis_client import close_redis, get_redis
 from app.routers import auth_router, students, lessons, homework, ai
 from app.routers import boards
 from app.services.homework_ai import get_ai_status
+from app.services.db_startup import get_db_health, run_startup_db_checks
 from app.services.job_store import recover_stale_jobs
+from app.services.arq_client import close_arq_pool
 from app.services.openrouter_client import is_configured as openrouter_configured
 from app.services.local_llm import local_model_available, preload_model_background
 
@@ -23,7 +25,17 @@ async def lifespan(app: FastAPI):
     cfg = get_settings()
     os.makedirs(cfg.media_dir, exist_ok=True)
     init_db()
+    db_report = run_startup_db_checks()
+    print(
+        f"[db] {db_report.backend} users={db_report.users_count}"
+        + (f" backup={db_report.backup_path}" if db_report.backup_path else "")
+    )
+    for warning in db_report.warnings:
+        print(f"[db] WARNING: {warning}")
     get_redis()
+    from app.routers.boards import setup_board_bus, shutdown_board_bus
+
+    await setup_board_bus()
     recovered = recover_stale_jobs()
     if recovered:
         print(f"[jobs] marked {recovered} stale job(s) after restart")
@@ -52,6 +64,10 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(_log_ai_status())
     yield
+    from app.routers.boards import shutdown_board_bus
+
+    await shutdown_board_bus()
+    await close_arq_pool()
     close_redis()
 
 
@@ -82,8 +98,13 @@ app.include_router(boards.router)
 
 @app.get("/health")
 def health():
+    from app.services.board_bus import board_bus
+
     redis = get_redis()
     return {
         "status": "ok",
         "redis": "connected" if redis is not None else "disabled",
+        "worker": "arq" if redis is not None else "in-process",
+        "board_bus": "redis" if board_bus.enabled else "local",
+        "database": get_db_health(),
     }

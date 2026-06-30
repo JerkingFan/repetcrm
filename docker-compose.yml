@@ -57,6 +57,26 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  worker:
+    build: ./backend
+    command: ["arq", "app.worker_settings.WorkerSettings"]
+    environment:
+      SECRET_KEY: repetcrm-docker-secret-change-me
+      DATABASE_URL: sqlite:///./data/repetcrm.db
+      REDIS_URL: redis://redis:6379/0
+      MEDIA_DIR: ./media
+      AI_ALLOW_TEMPLATE_FALLBACK: "true"
+      HOMEWORK_AI_PROVIDER: smart
+    volumes:
+      - backend_data:/app/data
+      - backend_media:/app/media
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    restart: unless-stopped
+
   frontend:
     build:
       context: ./frontend

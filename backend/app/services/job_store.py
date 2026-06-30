@@ -140,13 +140,18 @@ def recover_stale_jobs() -> int:
                 redis.delete(key)
                 continue
             job = load_job(job_id)
-            if job and job.status in ("queued", "running"):
+            if job and job.status == "running":
                 job.status = "error"
                 job.error = "Сервер перезапущен. Попробуйте снова."
                 job.updated_at_ms = int(time.time() * 1000)
                 save_job(job)
                 recovered += 1
-            redis.delete(key)
+                redis.delete(key)
+            elif job and job.status == "queued":
+                # ARQ worker may still pick this up — keep active lock
+                continue
+            else:
+                redis.delete(key)
     except Exception as exc:
         logger.warning("job_store recover_stale_jobs failed: %s", exc)
 

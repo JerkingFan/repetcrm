@@ -11,25 +11,23 @@
 
 Готовый фрагмент: `deploy/nginx/repetcrm.conf.example` (location `/api/boards/ws/`).
 
-Sticky sessions (ip_hash) **не нужны**: состояние доски в памяти привязано к `board_id`, а не к сокету конкретного воркера.
+Sticky sessions (ip_hash) **не нужны** при включённом Redis board bus.
 
 ## Несколько воркеров Uvicorn
 
-In-memory комнаты (`_BoardRoomStore`) и broadcast живут **в одном процессе**. Если запустить `uvicorn --workers 2+` без общего bus:
+С **REDIS_URL** и `board_bus` (см. `app/services/board_bus.py`):
 
-- клиенты на разных воркерах **не увидят** чужие ops;
-- debounced persist может писать разные снимки.
+- ops рассылаются через Redis pub/sub между процессами API;
+- debounced persist остаётся на воркере, принявшем op от клиента;
+- можно поднять `uvicorn --workers 2+` (осторожно с in-memory job queue — ARQ worker отдельно).
 
-**Продакшен-варианты:**
-
-1. **Один воркер** для API с WebSocket (проще всего для малых и средних нагрузок).
-2. **Redis pub/sub** (или аналог): broadcast ops между воркерами + общий store / периодический flush в БД (потребует доработки кода).
-
-Пример запуска с одним воркером:
+Без Redis — только **один воркер** для WebSocket:
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
+
+Проверка: `GET /health` → `"board_bus": "redis"`.
 
 ## Keepalive
 

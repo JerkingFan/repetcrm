@@ -1,5 +1,3 @@
-import asyncio
-
 from fastapi.responses import JSONResponse
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,12 +17,12 @@ from app.services.latex_convert import (
     process_homework_html,
 )
 from app.services.pdf import (
-    generate_homework_pdf,
     homework_pdf_cache_fresh,
     homework_pdf_path,
     invalidate_homework_pdf,
 )
-from app.services.job_queue import job_queue
+from app.services.job_queue import job_queue, ARQ_TASK_BUILD_PDF
+from app.services.job_tasks import run_build_pdf
 
 
 router = APIRouter(prefix="/homework", tags=["homework"])
@@ -194,49 +192,14 @@ async def download_pdf(homework_id: int, user: User = Depends(get_current_user),
         path = cached
     else:
         # Start background build and ask client to poll.
-        async def _run():
-            from app.database import SessionLocal
-
-            db2 = SessionLocal()
-            try:
-                hw2 = get_homework_or_404(homework_id, user, db2)
-                lesson2 = hw2.lesson
-                from app.services.homework_prefs import apply_prefs_to_checklist, parse_homework_prefs
-
-                prefs2 = parse_homework_prefs(lesson2.homework_prefs)
-                checklist2 = apply_prefs_to_checklist(
-                    [
-                        {
-                            "topic": i.topic,
-                            "work_type": i.work_type,
-                            "difficulty": i.difficulty,
-                            "understanding": i.understanding,
-                        }
-                        for i in lesson2.checklist_items
-                    ],
-                    prefs2,
-                )
-                path2 = await asyncio.to_thread(
-                    generate_homework_pdf,
-                    hw2.id,
-                    lesson2.student.name,
-                    lesson2.lesson_date,
-                    hw2.homework_text,
-                    subject=lesson2.student.subject,
-                    checklist=checklist2 or None,
-                    grade=lesson2.student.grade or "",
-                    homework_prefs=prefs2,
-                )
-                return {"pdf_path": path2, "homework_id": hw2.id}
-            finally:
-                db2.close()
-
         job = await job_queue.enqueue_unique(
             owner_user_id=user.id,
             key_type="homework",
             key_value=homework_id,
             job_type="build_pdf",
-            coro_factory=_run,
+            arq_task=ARQ_TASK_BUILD_PDF,
+            arq_args=(homework_id, user.id),
+            inprocess_runner=lambda: run_build_pdf(homework_id, user.id),
         )
         return JSONResponse(
             status_code=202,

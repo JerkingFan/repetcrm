@@ -1,7 +1,6 @@
-import asyncio
-from datetime import date, datetime, timedelta
 import calendar
 import secrets
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, case, func
@@ -39,8 +38,8 @@ from app.services.dashboard_cache import (
     invalidate_dashboard,
     set_cached_dashboard,
 )
-from app.services.job_queue import job_queue
-from app.services.smart_homework import generate_smart_homework_latex
+from app.services.job_queue import job_queue, ARQ_TASK_GENERATE_HOMEWORK
+from app.services.job_tasks import run_generate_homework
 from app.services.pdf import invalidate_homework_pdf
 
 router = APIRouter(tags=["lessons"])
@@ -403,81 +402,14 @@ async def start_generate_homework_job(
     if not lesson.checklist_items:
         raise HTTPException(status_code=400, detail="Добавьте хотя бы одну тему")
 
-    prefs = parse_homework_prefs(lesson.homework_prefs)
-    checklist = apply_prefs_to_checklist(
-        [
-            {
-                "topic": i.topic,
-                "work_type": i.work_type,
-                "difficulty": i.difficulty,
-                "understanding": i.understanding,
-            }
-            for i in lesson.checklist_items
-        ],
-        prefs,
-    )
-
-    async def _run():
-        from app.config import get_settings
-        from app.database import SessionLocal
-
-        cfg = get_settings()
-        # Hard cap to avoid tying up workers forever
-        openrouter_cap_sec = 60.0
-
-        # Generate content (LaTeX)
-        try:
-            html, source, hint = await asyncio.wait_for(
-                generate_homework_ai(
-                    lesson.student.name,
-                    lesson.student.subject,
-                    checklist,
-                    lesson.student.grade,
-                    homework_prefs=prefs,
-                ),
-                timeout=openrouter_cap_sec if cfg.homework_ai_provider in ("openrouter", "auto") else 900.0,
-            )
-        except Exception as e:
-            # Fast fallback to smart (always works)
-            html = generate_smart_homework_latex(
-                lesson.student.name,
-                lesson.student.subject,
-                checklist,
-                lesson.student.grade or "",
-                homework_prefs=prefs,
-            )
-            source = "smart_fallback"
-            hint = f"AI timeout/error: {e}. Использован шаблон."
-
-        # Save homework in DB (new session)
-        db2 = SessionLocal()
-        try:
-            l2 = get_lesson_or_404(lesson_id, user, db2)
-            if l2.homework:
-                l2.homework.homework_text = html
-                hw2 = l2.homework
-            else:
-                hw2 = Homework(lesson_id=lesson_id, homework_text=html)
-                db2.add(hw2)
-            db2.commit()
-            db2.refresh(hw2)
-            invalidate_homework_pdf(hw2.id)
-            return {
-                "homework_id": hw2.id,
-                "generation_source": source,
-                "generation_hint": hint,
-                "configured_provider": cfg.homework_ai_provider,
-                "configured_model": cfg.openrouter_model,
-            }
-        finally:
-            db2.close()
-
     job = await job_queue.enqueue_unique(
         owner_user_id=user.id,
         key_type="lesson",
         key_value=lesson_id,
         job_type="generate_homework",
-        coro_factory=_run,
+        arq_task=ARQ_TASK_GENERATE_HOMEWORK,
+        arq_args=(lesson_id, user.id),
+        inprocess_runner=lambda: run_generate_homework(lesson_id, user.id),
     )
     return HomeworkJobStartOut(job_id=job.id, status=job.status)
 

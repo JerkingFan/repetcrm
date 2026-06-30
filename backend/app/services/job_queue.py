@@ -1,20 +1,27 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 import time
 
 from app.config import get_settings
 from app.services import job_store
+from app.services.arq_client import enqueue_arq_task
 from app.services.job_types import Job
+
+logger = logging.getLogger(__name__)
+
+# ARQ registers tasks by function name
+ARQ_TASK_GENERATE_HOMEWORK = "generate_homework_task"
+ARQ_TASK_BUILD_PDF = "build_pdf_task"
 
 
 class JobQueue:
     """
-    Background job queue (single API process):
-    - Redis persistence when REDIS_URL is set
-    - TTL for active jobs
-    - global AI concurrency cap
+    Job dispatch:
+    - Redis + ARQ worker when REDIS_URL is set (durable, separate process)
+    - in-process asyncio fallback otherwise
     """
 
     def __init__(self) -> None:
@@ -120,6 +127,37 @@ class JobQueue:
             return existing
         return None
 
+    async def _run_in_process(self, job: Job, key: tuple[int, str], runner) -> None:
+        sem = self._semaphores.setdefault(job.owner_user_id, asyncio.Semaphore(1))
+        ai_sem = self._ai_semaphore() if job.type == "generate_homework" else None
+        try:
+            if ai_sem is not None:
+                await ai_sem.acquire()
+            async with sem:
+                job.status = "running"
+                job.updated_at_ms = self._now_ms()
+                await self._set(job)
+                try:
+                    result = await runner()
+                    job.status = "done"
+                    job.result = result
+                    job.updated_at_ms = self._now_ms()
+                    await self._set(job)
+                except Exception as e:
+                    job.status = "error"
+                    job.error = str(e)
+                    job.updated_at_ms = self._now_ms()
+                    await self._set(job)
+        finally:
+            if ai_sem is not None:
+                ai_sem.release()
+            async with self._lock:
+                active = self._active_by_key.get(key)
+                if active == job.id:
+                    self._active_by_key.pop(key, None)
+                    owner_user_id, key_type, key_value = self._parse_active_key(key)
+                    job_store.clear_active(owner_user_id, key_type, key_value)
+
     async def enqueue_unique(
         self,
         *,
@@ -127,7 +165,9 @@ class JobQueue:
         key_type: str,
         key_value: int,
         job_type: str,
-        coro_factory,
+        arq_task: str,
+        arq_args: tuple,
+        inprocess_runner,
     ) -> Job:
         key = (owner_user_id, f"{key_type}:{key_value}")
         async with self._lock:
@@ -154,38 +194,13 @@ class JobQueue:
             job_store.set_active(owner_user_id, key_type, key_value, job_id)
             self._persist(job)
 
-        async def _runner():
-            sem = self._semaphores.setdefault(owner_user_id, asyncio.Semaphore(1))
-            ai_sem = self._ai_semaphore() if job_type == "generate_homework" else None
-            try:
-                if ai_sem is not None:
-                    await ai_sem.acquire()
-                async with sem:
-                    job.status = "running"
-                    job.updated_at_ms = self._now_ms()
-                    await self._set(job)
-                    try:
-                        result = await coro_factory()
-                        job.status = "done"
-                        job.result = result
-                        job.updated_at_ms = self._now_ms()
-                        await self._set(job)
-                    except Exception as e:
-                        job.status = "error"
-                        job.error = str(e)
-                        job.updated_at_ms = self._now_ms()
-                        await self._set(job)
-            finally:
-                if ai_sem is not None:
-                    ai_sem.release()
-                async with self._lock:
-                    active = self._active_by_key.get(key)
-                    if active == job.id:
-                        self._active_by_key.pop(key, None)
-                        owner_user_id, key_type, key_value = self._parse_active_key(key)
-                        job_store.clear_active(owner_user_id, key_type, key_value)
+        dispatched = await enqueue_arq_task(arq_task, job_id, *arq_args)
+        if dispatched:
+            logger.info("job %s dispatched to ARQ task=%s", job_id, arq_task)
+            return job
 
-        asyncio.create_task(_runner())
+        logger.info("job %s running in-process (no ARQ)", job_id)
+        asyncio.create_task(self._run_in_process(job, key, inprocess_runner))
         return job
 
 

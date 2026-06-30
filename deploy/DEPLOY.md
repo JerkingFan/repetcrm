@@ -121,8 +121,34 @@ SQL-скрипты: см. [deploy/sql/README.md](sql/README.md).
 
 ## Бэкап SQLite
 
+**Автоматически при старте API** (рекомендуется на проде):
+
+```env
+# .env.production
+SQLITE_BACKUP_ON_STARTUP=true
+SQLITE_BACKUP_DIR=./backups
+SQLITE_BACKUP_KEEP=14
+```
+
+Бэкапы лежат в volume `backend_data` → `/app/backups` внутри контейнера (или рядом с `data/`).
+
+**Вручную:**
+
 ```bash
 ./deploy/scripts/backup-sqlite.sh
+```
+
+**Cron (ежедневно в 3:00):**
+
+```bash
+0 3 * * * cd /opt/repetcrm && ./deploy/scripts/backup-sqlite.sh >> /var/log/repetcrm-backup.log 2>&1
+```
+
+**Проверка после деплоя:**
+
+```bash
+curl -s http://127.0.0.1:8000/health
+# database.users_count должен совпадать с ожидаемым числом юзеров
 ```
 
 Копирует `backend/data/repetcrm.db` в `backups/` с датой.
@@ -131,7 +157,9 @@ SQL-скрипты: см. [deploy/sql/README.md](sql/README.md).
 
 ## Чеклист перед открытием пользователям
 
-- [ ] `SECRET_KEY` изменён
+- [ ] `DATABASE_URL=sqlite:///./data/repetcrm.db` (если не мигрировали на Postgres)
+- [ ] `SQLITE_BACKUP_ON_STARTUP=true`
+- [ ] `curl /health` → `database.users_count` > 0
 - [ ] `OPENROUTER_API_KEY` задан, `HOMEWORK_AI_PROVIDER=openrouter`
 - [ ] `CORS_ORIGINS` = ваш домен
 - [ ] `NEXT_PUBLIC_API_URL` совпадает с тем, что видит браузер
@@ -148,6 +176,17 @@ git pull   # или залить новый архив
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
 ./deploy/scripts/loadtest.sh smoke   # быстрая проверка после деплоя
 ```
+
+Стек поднимает **3 backend-процесса**: API (`backend`), фоновый worker (`worker`), Redis.
+
+Проверка worker:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production logs -f worker
+# ожидайте: "Starting worker" и "ARQ pool connected" при генерации ДЗ
+```
+
+Без Redis jobs выполняются внутри API-процесса (как раньше). С Redis + worker — AI/PDF не блокируют API и переживают рестарт API.
 
 Подробнее: [deploy/loadtest/README.md](loadtest/README.md).
 

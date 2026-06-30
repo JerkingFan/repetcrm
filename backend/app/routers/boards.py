@@ -346,11 +346,53 @@ class _BoardConnectionManager:
             try:
                 await ws.send_json(message)
             except Exception:
-                # drop silently; client will reconnect
                 self.disconnect(board_id, ws)
+
+    async def publish_op(self, board_id: int, op: dict, *, exclude: WebSocket | None = None) -> None:
+        """Apply op locally, persist, broadcast to local clients, fan-out to other workers."""
+        if op.get("op") in ("cursor", "cursor_leave"):
+            await self.broadcast(board_id, {"type": "op", "op": op}, exclude=exclude)
+            from app.services.board_bus import board_bus
+
+            await board_bus.publish(board_id, {"type": "op", "op": op})
+            return
+
+        self._store.apply(board_id, op)
+        self._store.schedule_persist(board_id)
+        await self.broadcast(board_id, {"type": "op", "op": op}, exclude=exclude)
+        from app.services.board_bus import board_bus
+
+        await board_bus.publish(board_id, {"type": "op", "op": op})
 
 
 _manager = _BoardConnectionManager(_room_store)
+
+
+async def _handle_remote_board_op(board_id: int, payload: dict) -> None:
+    """Ops from another API worker via Redis pub/sub."""
+    op = payload.get("op")
+    if not isinstance(op, dict):
+        return
+    if op.get("op") in ("cursor", "cursor_leave"):
+        await _manager.broadcast(board_id, {"type": "op", "op": op})
+        return
+    if board_id not in _room_store._states:
+        return
+    _room_store.apply(board_id, op)
+    await _manager.broadcast(board_id, {"type": "op", "op": op})
+
+
+async def setup_board_bus() -> None:
+    from app.services.board_bus import board_bus
+
+    board_bus.set_handler(_handle_remote_board_op)
+    await board_bus.start()
+
+
+async def shutdown_board_bus() -> None:
+    from app.services.board_bus import board_bus
+
+    await board_bus.stop()
 
 def _load_state(b: Board) -> dict:
     try:
@@ -602,13 +644,7 @@ async def board_ws(ws: WebSocket, board_id: int):
                 continue
             if msg.get("type") == "op" and isinstance(msg.get("op"), dict):
                 op = msg["op"]
-                # Presence: broadcast only, do not persist.
-                if op.get("op") in ("cursor", "cursor_leave"):
-                    await _manager.broadcast(board_id, {"type": "op", "op": op}, exclude=ws)
-                    continue
-                _room_store.apply(board_id, op)
-                _room_store.schedule_persist(board_id)
-                await _manager.broadcast(board_id, {"type": "op", "op": op}, exclude=ws)
+                await _manager.publish_op(board_id, op, exclude=ws)
             elif msg.get("type") == "ping":
                 await ws.send_json({"type": "pong"})
     except WebSocketDisconnect:

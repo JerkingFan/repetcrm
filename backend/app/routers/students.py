@@ -23,6 +23,7 @@ from app.services.boundaries import (
     MODE_SEVERITY,
 )
 from app.services.dashboard_cache import invalidate_dashboard
+from app.services.student_search import apply_student_name_search
 from app.models import StudentBoundaryMode
 
 router = APIRouter(prefix="/students", tags=["students"])
@@ -44,9 +45,8 @@ def list_students(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    query = db.query(Student).filter(Student.tutor_id == user.id)
-    if q and q.strip():
-        query = query.filter(Student.name.ilike(f"%{q.strip()}%"))
+    query = db.query(Student)
+    query = apply_student_name_search(query, user.id, q)
     total = query.count()
     offset = (page - 1) * page_size
     rows = query.order_by(Student.name).offset(offset).limit(page_size).all()

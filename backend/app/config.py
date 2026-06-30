@@ -39,6 +39,9 @@ _ENV_FILE_KEYS = {
     "JOB_RETENTION_SEC": "job_retention_sec",
     "AI_GLOBAL_CONCURRENCY": "ai_global_concurrency",
     "OPENROUTER_MAX_RETRIES": "openrouter_max_retries",
+    "SQLITE_BACKUP_ON_STARTUP": "sqlite_backup_on_startup",
+    "SQLITE_BACKUP_DIR": "sqlite_backup_dir",
+    "SQLITE_BACKUP_KEEP": "sqlite_backup_keep",
 }
 
 
@@ -101,6 +104,9 @@ class Settings(BaseSettings):
     job_retention_sec: int = 3600
     ai_global_concurrency: int = 8
     openrouter_max_retries: int = 3
+    sqlite_backup_on_startup: bool = False
+    sqlite_backup_dir: str = "./data/backups"
+    sqlite_backup_keep: int = 14
 
     @property
     def ollama_generate_url(self) -> str:
@@ -158,10 +164,13 @@ def get_settings() -> Settings:
             "job_retention_sec",
             "ai_global_concurrency",
             "openrouter_max_retries",
+            "sqlite_backup_keep",
         ):
             updates[field] = float(v) if "." in v else int(v)
         elif field in ("auth_login_fail_delay_sec", "board_persist_debounce_sec"):
             updates[field] = float(v)
+        elif field == "sqlite_backup_on_startup":
+            updates[field] = v.lower() in ("1", "true", "yes", "on")
         else:
             updates[field] = v
     if updates:
