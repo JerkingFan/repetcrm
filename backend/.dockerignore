@@ -8,5 +8,4 @@ media
 models
 *.db
 .git
-scripts
 tests
