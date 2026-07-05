@@ -72,7 +72,11 @@ else
 fi
 
 ylw "Сборка и запуск контейнеров..."
-"${COMPOSE[@]}" up -d --build
+if ! "${COMPOSE[@]}" up -d --build; then
+  red "docker compose up failed — логи backend:"
+  "${COMPOSE[@]}" logs --tail=100 backend || true
+  exit 1
+fi
 
 ylw "Ожидание health backend..."
 for i in $(seq 1 30); do

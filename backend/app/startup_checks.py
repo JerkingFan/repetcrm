@@ -35,11 +35,15 @@ def validate_production_settings(cfg: Settings) -> None:
     if not cfg.cookie_secure:
         errors.append("COOKIE_SECURE must be true in production (HTTPS required)")
 
+    # Webhook HMAC is optional until ERIP/acquiring is connected; missing secret blocks
+    # /payments/webhook in production via verify_webhook_signature().
     webhook_secret = (cfg.payment_webhook_secret or "").strip()
-    if not webhook_secret or webhook_secret in _INSECURE_SECRET_KEYS:
+    if webhook_secret and (
+        webhook_secret in _INSECURE_SECRET_KEYS or len(webhook_secret) < 32
+    ):
         errors.append(
-            "PAYMENT_WEBHOOK_SECRET must be set to a strong random value in production "
-            "(required for payment webhook HMAC verification)"
+            "PAYMENT_WEBHOOK_SECRET must be a random string of at least 32 characters "
+            "(or remove the line until payment webhooks are enabled)"
         )
 
     if errors:

@@ -27,13 +27,25 @@ def test_production_accepts_strong_secret():
     validate_production_settings(cfg)
 
 
-def test_production_rejects_missing_webhook_secret():
+def test_production_allows_missing_webhook_secret():
+    """Manual bank-transfer flow works without ERIP webhook secret."""
     cfg = Settings(
         app_env="production",
         secret_key="x" * 48,
         cookie_secure=True,
         cors_allow_localhost_regex=False,
         payment_webhook_secret="",
+    )
+    validate_production_settings(cfg)
+
+
+def test_production_rejects_placeholder_webhook_secret():
+    cfg = Settings(
+        app_env="production",
+        secret_key="x" * 48,
+        cookie_secure=True,
+        cors_allow_localhost_regex=False,
+        payment_webhook_secret="change-me-in-production",
     )
     try:
         validate_production_settings(cfg)
