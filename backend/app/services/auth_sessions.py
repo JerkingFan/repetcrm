@@ -6,6 +6,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta
 
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -20,6 +21,14 @@ def _new_refresh_token() -> str:
     return secrets.token_urlsafe(48)
 
 
+def _ensure_auth_sessions_table(db: Session) -> None:
+    if inspect(db.get_bind()).has_table("auth_sessions"):
+        return
+    from app.db_migrate import _repair_missing_auth_sessions
+
+    _repair_missing_auth_sessions()
+
+
 def create_session(
     db: Session,
     user: User,
@@ -28,6 +37,7 @@ def create_session(
     user_agent: str = "",
 ) -> tuple[str, AuthSession]:
     """Returns (raw_refresh_token, session row). Caller sets HttpOnly cookie."""
+    _ensure_auth_sessions_table(db)
     cfg = get_settings()
     raw = _new_refresh_token()
     session = AuthSession(
