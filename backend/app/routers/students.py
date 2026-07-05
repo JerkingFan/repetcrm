@@ -324,7 +324,7 @@ def get_portal_link(student_id: int, user: User = Depends(get_current_user), db:
         raise HTTPException(status_code=404, detail="Student not found")
     token = ensure_portal_token(db, student)
     db.commit()
-    base = get_settings().frontend_public_url.rstrip("/")
+    base = get_settings().public_site_url
     return PortalLinkOut(portal_token=token, portal_url=f"{base}/portal?token={token}")
 
 
@@ -337,7 +337,7 @@ def regenerate_portal_link(
         raise HTTPException(status_code=404, detail="Student not found")
     token = regenerate_portal_token(db, student)
     db.commit()
-    base = get_settings().frontend_public_url.rstrip("/")
+    base = get_settings().public_site_url
     return PortalLinkOut(portal_token=token, portal_url=f"{base}/portal?token={token}")
 
 
@@ -348,7 +348,7 @@ def get_parent_portal_link(student_id: int, user: User = Depends(get_current_use
         raise HTTPException(status_code=404, detail="Student not found")
     token = ensure_parent_portal_token(db, student)
     db.commit()
-    base = get_settings().frontend_public_url.rstrip("/")
+    base = get_settings().public_site_url
     return ParentPortalLinkOut(
         parent_portal_token=token,
         parent_portal_url=f"{base}/parent?token={token}",
@@ -364,7 +364,7 @@ def regenerate_parent_portal_link(
         raise HTTPException(status_code=404, detail="Student not found")
     token = regenerate_parent_portal_token(db, student)
     db.commit()
-    base = get_settings().frontend_public_url.rstrip("/")
+    base = get_settings().public_site_url
     return ParentPortalLinkOut(
         parent_portal_token=token,
         parent_portal_url=f"{base}/parent?token={token}",

@@ -17,7 +17,7 @@ from app.models import Lesson, LessonPackage, PaymentIntent, PaymentTransaction,
 
 def _public_pay_url(token: str) -> str:
     cfg = get_settings()
-    base = (cfg.frontend_public_url or "http://localhost:3000").rstrip("/")
+    base = cfg.public_site_url
     return f"{base}/pay/{token}"
 
 

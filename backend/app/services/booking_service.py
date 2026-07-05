@@ -26,7 +26,7 @@ def default_booking_hours() -> list[dict]:
 
 def booking_public_url(slug: str) -> str:
     cfg = get_settings()
-    base = (cfg.frontend_public_url or "http://localhost:3000").rstrip("/")
+    base = cfg.public_site_url
     return f"{base}/book/{slug}"
 
 

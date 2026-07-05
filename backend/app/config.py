@@ -182,6 +182,25 @@ class Settings(BaseSettings):
         return self.app_env.strip().lower() == "production"
 
     @property
+    def public_site_url(self) -> str:
+        """Public frontend URL for portal/parent/booking links (not localhost on prod)."""
+        url = (self.frontend_public_url or "").strip().rstrip("/")
+        lower = url.lower()
+        is_local = "localhost" in lower or "127.0.0.1" in lower
+        if url and not is_local:
+            return url
+        if self.is_production:
+            for part in self.cors_origins.split(","):
+                origin = part.strip().rstrip("/")
+                if not origin:
+                    continue
+                ol = origin.lower()
+                if "localhost" in ol or "127.0.0.1" in ol or "example.com" in ol:
+                    continue
+                return origin
+        return url or "http://localhost:3000"
+
+    @property
     def ollama_generate_url(self) -> str:
         return f"{self.ollama_base_url.rstrip('/')}/api/generate"
 

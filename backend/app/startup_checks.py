@@ -35,6 +35,13 @@ def validate_production_settings(cfg: Settings) -> None:
     if not cfg.cookie_secure:
         errors.append("COOKIE_SECURE must be true in production (HTTPS required)")
 
+    site = cfg.public_site_url.lower()
+    if "localhost" in site or "127.0.0.1" in site:
+        errors.append(
+            "FRONTEND_PUBLIC_URL must be your public site URL (e.g. https://repetcrm.ru) "
+            "or set CORS_ORIGINS to that domain — portal/parent links use this"
+        )
+
     # Webhook HMAC is optional until ERIP/acquiring is connected; missing secret blocks
     # /payments/webhook in production via verify_webhook_signature().
     webhook_secret = (cfg.payment_webhook_secret or "").strip()

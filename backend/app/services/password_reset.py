@@ -44,7 +44,7 @@ def create_reset_token(db: Session, user: User) -> str:
 
 def send_reset_email(user: User, raw_token: str) -> None:
     cfg = get_settings()
-    base = cfg.frontend_public_url.rstrip("/")
+    base = cfg.public_site_url
     link = f"{base}/reset-password?token={raw_token}"
     subject = "RepetCRM — восстановление пароля"
     body = (

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def parent_portal_url(db: Session, student: Student) -> str:
     cfg = get_settings()
-    base = (cfg.frontend_public_url or "http://localhost:3000").rstrip("/")
+    base = cfg.public_site_url
     token = ensure_parent_portal_token(db, student)
     return f"{base}/parent?token={token}"
 

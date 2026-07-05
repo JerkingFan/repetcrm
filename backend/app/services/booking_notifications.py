@@ -24,7 +24,7 @@ def send_trial_booking_emails(db: Session, *, tutor: User, booking: TrialBooking
     student = booking.student
     slot_label = f"{booking.preferred_date.strftime('%d.%m.%Y')} {booking.preferred_time}"
     cfg = get_settings()
-    crm_hint = (cfg.frontend_public_url or "http://localhost:3000").rstrip("/")
+    crm_hint = cfg.public_site_url
 
     tutor_subject = f"Новая заявка на пробный: {student.name}"
     tutor_body = (

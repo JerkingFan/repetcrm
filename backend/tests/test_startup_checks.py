@@ -23,8 +23,37 @@ def test_production_accepts_strong_secret():
         cookie_secure=True,
         cors_allow_localhost_regex=False,
         payment_webhook_secret="x" * 48,
+        frontend_public_url="https://repetcrm.ru",
     )
     validate_production_settings(cfg)
+
+
+def test_production_accepts_public_url_from_cors():
+    cfg = Settings(
+        app_env="production",
+        secret_key="x" * 48,
+        cookie_secure=True,
+        cors_allow_localhost_regex=False,
+        frontend_public_url="http://localhost:3000",
+        cors_origins="https://repetcrm.ru",
+    )
+    validate_production_settings(cfg)
+
+
+def test_production_rejects_localhost_public_url():
+    cfg = Settings(
+        app_env="production",
+        secret_key="x" * 48,
+        cookie_secure=True,
+        cors_allow_localhost_regex=False,
+        frontend_public_url="http://localhost:3000",
+        cors_origins="http://localhost:3000",
+    )
+    try:
+        validate_production_settings(cfg)
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "FRONTEND_PUBLIC_URL" in str(exc)
 
 
 def test_production_allows_missing_webhook_secret():
@@ -35,6 +64,7 @@ def test_production_allows_missing_webhook_secret():
         cookie_secure=True,
         cors_allow_localhost_regex=False,
         payment_webhook_secret="",
+        frontend_public_url="https://repetcrm.ru",
     )
     validate_production_settings(cfg)
 
