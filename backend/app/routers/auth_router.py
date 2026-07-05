@@ -36,6 +36,7 @@ from app.services.auth_rate_limit import (
     get_register_limiter,
     redact_email,
 )
+from app.db_migrate import repair_legacy_schema
 from app.services.auth_sessions import (
     create_session,
     get_valid_session,
@@ -144,6 +145,7 @@ def register(
 
 @router.post("/login", response_model=Token)
 async def login(data: UserLogin, request: Request, response: Response, db: Session = Depends(get_db)):
+    repair_legacy_schema()
     cfg = get_settings()
     ip = get_client_ip(request)
     rate_key = _login_rate_key(ip, data.email)

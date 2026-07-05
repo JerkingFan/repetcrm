@@ -101,6 +101,52 @@ def _repair_missing_auth_sessions() -> None:
     logger.info("auth_sessions table created")
 
 
+# Columns on users added after early deployments (Alembic stamp may skip DDL).
+_USER_SQLITE_COLUMN_DDLS: dict[str, str] = {
+    "telegram_chat_id": "VARCHAR(64) NOT NULL DEFAULT ''",
+    "notify_email": "BOOLEAN NOT NULL DEFAULT 1",
+    "notify_telegram": "BOOLEAN NOT NULL DEFAULT 0",
+    "notify_lesson_tomorrow": "BOOLEAN NOT NULL DEFAULT 1",
+    "notify_unpaid": "BOOLEAN NOT NULL DEFAULT 1",
+    "notify_homework_ready": "BOOLEAN NOT NULL DEFAULT 1",
+    "booking_slug": "VARCHAR(64)",
+    "booking_enabled": "BOOLEAN NOT NULL DEFAULT 0",
+    "booking_hours": "TEXT NOT NULL DEFAULT '[]'",
+    "booking_reply_text": "TEXT NOT NULL DEFAULT ''",
+    "payment_details": "TEXT NOT NULL DEFAULT ''",
+}
+
+
+def _repair_users_table_columns() -> None:
+    """Add missing users columns so ORM login queries do not 500."""
+    insp = inspect(engine)
+    if not insp.has_table("users"):
+        return
+
+    existing = {c["name"] for c in insp.get_columns("users")}
+    dialect = engine.dialect.name
+    added: list[str] = []
+
+    with engine.begin() as conn:
+        for col, ddl in _USER_SQLITE_COLUMN_DDLS.items():
+            if col in existing:
+                continue
+            if dialect == "sqlite":
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {ddl}"))
+            else:
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {ddl}"))
+            added.append(col)
+
+    if added:
+        logger.warning("Legacy DB repair: added users columns %s", ", ".join(added))
+
+
+def repair_legacy_schema() -> None:
+    """Idempotent fixes for DBs stamped ahead of their real schema."""
+    _repair_missing_auth_sessions()
+    _repair_users_table_columns()
+
+
 def _detect_legacy_revision(insp: Inspector) -> str:
     """Best-effort Alembic revision for a populated DB without alembic_version."""
     if insp.has_table("payment_receipts"):
@@ -150,6 +196,7 @@ def run_migrations() -> None:
     initial_schema when users already exist.
     """
     _repair_missing_auth_sessions()
+    _repair_users_table_columns()
     cfg = _alembic_config()
     current = _current_revision()
 

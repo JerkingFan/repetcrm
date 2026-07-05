@@ -24,9 +24,9 @@ def _new_refresh_token() -> str:
 def _ensure_auth_sessions_table(db: Session) -> None:
     if inspect(db.get_bind()).has_table("auth_sessions"):
         return
-    from app.db_migrate import _repair_missing_auth_sessions
+    from app.db_migrate import repair_legacy_schema
 
-    _repair_missing_auth_sessions()
+    repair_legacy_schema()
 
 
 def create_session(
