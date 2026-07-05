@@ -18,9 +18,11 @@ def _reload_db_stack(tmp_path, monkeypatch, db_name: str):
 
     import app.database as database_module
     import app.db_migrate as migrate_module
+    import app.models as models_module
 
     importlib.reload(config_module)
     importlib.reload(database_module)
+    importlib.reload(models_module)
     importlib.reload(migrate_module)
     return database_module
 
@@ -145,9 +147,9 @@ def test_repair_creates_auth_sessions_for_legacy_users_db(tmp_path, monkeypatch)
         )
         conn.commit()
 
-    from app.db_migrate import _repair_missing_auth_sessions
+    from app.db_migrate import repair_legacy_schema
 
-    _repair_missing_auth_sessions()
+    repair_legacy_schema()
 
     insp = inspect(db.engine)
     assert insp.has_table("auth_sessions")
@@ -188,3 +190,67 @@ def test_legacy_db_without_alembic_version_stamps_then_upgrades(tmp_path, monkey
 
     assert count == 1
     assert rev == "f3a4b5c6d7e8"
+
+
+def test_repair_boards_share_writable_and_snapshots(tmp_path, monkeypatch):
+    """Old boards table without share_writable must not 500 on GET /boards/:id."""
+    db = _reload_db_stack(tmp_path, monkeypatch, f"boards_{uuid.uuid4().hex}.db")
+
+    with db.engine.connect() as conn:
+        conn.execute(
+            __import__("sqlalchemy").text(
+                """
+                CREATE TABLE users (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL UNIQUE,
+                    hashed_password VARCHAR(255) NOT NULL,
+                    name VARCHAR(255) NOT NULL DEFAULT '',
+                    onboarding_completed BOOLEAN NOT NULL DEFAULT 0,
+                    subjects TEXT NOT NULL DEFAULT '[]',
+                    grade_levels TEXT NOT NULL DEFAULT '[]',
+                    teaching_format VARCHAR(50) NOT NULL DEFAULT '',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.execute(
+            __import__("sqlalchemy").text(
+                """
+                CREATE TABLE boards (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    owner_id INTEGER NOT NULL,
+                    title VARCHAR(255) NOT NULL DEFAULT 'Виртуальная доска',
+                    share_token VARCHAR(64) NOT NULL UNIQUE,
+                    state_json TEXT NOT NULL DEFAULT '{}',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(owner_id) REFERENCES users (id)
+                )
+                """
+            )
+        )
+        conn.commit()
+
+    from app.db_migrate import repair_legacy_schema
+    from app.models import Board, User
+
+    repair_legacy_schema()
+
+    insp = inspect(db.engine)
+    assert insp.has_table("board_snapshots")
+    board_cols = {c["name"] for c in insp.get_columns("boards")}
+    assert "share_writable" in board_cols
+
+    session = db.SessionLocal()
+    try:
+        user = User(email="tutor@test.example", hashed_password="x", name="T")
+        session.add(user)
+        session.commit()
+        board = Board(owner_id=user.id, share_token="tok123", title="Test")
+        session.add(board)
+        session.commit()
+        loaded = session.query(Board).filter(Board.id == board.id).one()
+        assert loaded.share_writable is True
+    finally:
+        session.close()

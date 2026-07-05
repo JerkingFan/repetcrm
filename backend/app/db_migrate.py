@@ -8,8 +8,10 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
+import sqlalchemy as sa
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Inspector
+from sqlalchemy.schema import Column
 
 from app.config import settings
 from app.database import engine
@@ -164,6 +166,10 @@ _LESSONS_SQLITE_COLUMN_DDLS: dict[str, str] = {
     "package_id": "INTEGER",
 }
 
+_BOARDS_SQLITE_COLUMN_DDLS: dict[str, str] = {
+    "share_writable": "BOOLEAN NOT NULL DEFAULT 1",
+}
+
 
 def _repair_missing_payment_receipts() -> None:
     insp = inspect(engine)
@@ -256,13 +262,191 @@ def _repair_missing_payment_receipts() -> None:
     logger.info("payment_receipts table created")
 
 
+def _repair_missing_board_snapshots() -> None:
+    insp = inspect(engine)
+    if insp.has_table("board_snapshots") or not insp.has_table("boards"):
+        return
+
+    logger.warning("Legacy DB repair: creating board_snapshots table")
+    dialect = engine.dialect.name
+    with engine.begin() as conn:
+        if dialect == "sqlite":
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE board_snapshots (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        board_id INTEGER NOT NULL,
+                        state_json TEXT NOT NULL DEFAULT '{}',
+                        created_at DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+                        FOREIGN KEY(board_id) REFERENCES boards (id) ON DELETE CASCADE
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_board_snapshots_board_id "
+                    "ON board_snapshots (board_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_board_snapshots_created_at "
+                    "ON board_snapshots (created_at)"
+                )
+            )
+        else:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS board_snapshots (
+                        id SERIAL PRIMARY KEY,
+                        board_id INTEGER NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+                        state_json TEXT NOT NULL DEFAULT '{}',
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_board_snapshots_board_id "
+                    "ON board_snapshots (board_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_board_snapshots_created_at "
+                    "ON board_snapshots (created_at)"
+                )
+            )
+    logger.info("board_snapshots table created")
+
+
+def _sqlite_type_for_column(col: Column) -> str:
+    t = col.type
+    if isinstance(t, sa.Integer):
+        return "INTEGER"
+    if isinstance(t, sa.String):
+        return f"VARCHAR({t.length or 255})"
+    if isinstance(t, sa.Text):
+        return "TEXT"
+    if isinstance(t, sa.Boolean):
+        return "BOOLEAN"
+    if isinstance(t, sa.Float):
+        return "FLOAT"
+    if isinstance(t, sa.DateTime):
+        return "DATETIME"
+    if isinstance(t, sa.Date):
+        return "DATE"
+    return str(t.compile(dialect=engine.dialect))
+
+
+def _default_sql_for_column(col: Column, dialect: str) -> str | None:
+    if col.server_default is not None:
+        arg = col.server_default.arg
+        if isinstance(arg, sa.TextClause):
+            return arg.text
+    default = col.default
+    if default is not None and getattr(default, "is_scalar", False):
+        val = default.arg
+        if isinstance(val, bool):
+            if dialect == "sqlite":
+                return "1" if val else "0"
+            return "true" if val else "false"
+        if isinstance(val, (int, float)):
+            return str(val)
+        if isinstance(val, str):
+            escaped = val.replace("'", "''")
+            return f"'{escaped}'"
+    return None
+
+
+def _column_add_ddl(col: Column, dialect: str) -> str:
+    sql_type = _sqlite_type_for_column(col) if dialect == "sqlite" else str(
+        col.type.compile(dialect=engine.dialect)
+    )
+    parts = [sql_type]
+    default_sql = _default_sql_for_column(col, dialect)
+    if default_sql:
+        parts.append(f"DEFAULT {default_sql}")
+    if col.nullable is False:
+        parts.append("NOT NULL")
+    return " ".join(parts)
+
+
+def _repair_missing_tables_from_models() -> None:
+    """Create any ORM tables missing from legacy DBs (e.g. board_snapshots)."""
+    from app.database import Base
+
+    import app.models  # noqa: F401
+
+    insp = inspect(engine)
+    missing = [t.name for t in Base.metadata.sorted_tables if not insp.has_table(t.name)]
+    if not missing:
+        return
+    Base.metadata.create_all(bind=engine, checkfirst=True)
+    logger.warning("Legacy DB repair: created tables: %s", ", ".join(sorted(missing)))
+
+
+def _repair_orm_missing_columns() -> None:
+    """Add columns present in SQLAlchemy models but missing in the live schema."""
+    from app.database import Base
+
+    import app.models  # noqa: F401
+
+    dialect = engine.dialect.name
+    if dialect not in ("sqlite", "postgresql"):
+        return
+
+    insp = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table.name)}
+        added: list[str] = []
+        with engine.begin() as conn:
+            for col in table.columns:
+                if col.name in existing:
+                    continue
+                ddl = _column_add_ddl(col, dialect)
+                if dialect == "sqlite":
+                    stmt = f"ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}"
+                else:
+                    stmt = (
+                        f"ALTER TABLE {table.name} ADD COLUMN IF NOT EXISTS "
+                        f"{col.name} {ddl}"
+                    )
+                try:
+                    conn.execute(text(stmt))
+                    added.append(col.name)
+                except Exception as exc:
+                    logger.warning(
+                        "Legacy DB repair: failed %s.%s: %s",
+                        table.name,
+                        col.name,
+                        exc,
+                    )
+        if added:
+            logger.warning(
+                "Legacy DB repair: added %s columns: %s",
+                table.name,
+                ", ".join(added),
+            )
+
+
 def repair_legacy_schema() -> None:
     """Idempotent fixes for DBs stamped ahead of their real schema."""
+    _repair_missing_tables_from_models()
+    _repair_orm_missing_columns()
     _repair_missing_auth_sessions()
-    _repair_users_table_columns()
+    _add_missing_columns("users", _USER_SQLITE_COLUMN_DDLS)
     _add_missing_columns("students", _STUDENTS_SQLITE_COLUMN_DDLS)
     _add_missing_columns("lessons", _LESSONS_SQLITE_COLUMN_DDLS)
+    _add_missing_columns("boards", _BOARDS_SQLITE_COLUMN_DDLS)
     _repair_missing_payment_receipts()
+    _repair_missing_board_snapshots()
 
 
 def _detect_legacy_revision(insp: Inspector) -> str:
