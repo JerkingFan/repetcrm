@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { getToken } from "@/lib/auth";
+import { clearLegacyToken } from "@/lib/auth";
 import { api } from "@/lib/api";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -12,26 +12,32 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    clearLegacyToken();
 
     async function checkAuth() {
-      let token = getToken();
-      if (!token) {
-        token = await api.refresh();
-      }
-      if (!token) {
-        router.replace("/login");
-        return;
-      }
-      try {
-        const user = await api.me(token);
+      async function loadUser() {
+        const user = await api.me();
         if (cancelled) return;
         if (!user.onboarding_completed && pathname !== "/onboarding") {
           router.replace("/onboarding");
           return;
         }
         setOk(true);
+      }
+
+      try {
+        await loadUser();
       } catch {
-        if (!cancelled) router.replace("/login");
+        const refreshed = await api.refresh();
+        if (!refreshed) {
+          if (!cancelled) router.replace("/login");
+          return;
+        }
+        try {
+          await loadUser();
+        } catch {
+          if (!cancelled) router.replace("/login");
+        }
       }
     }
 

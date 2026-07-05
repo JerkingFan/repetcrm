@@ -13,6 +13,7 @@ import {
   XMarkIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  SparklesIcon,
 } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import { api } from "@/lib/api";
@@ -21,6 +22,7 @@ const nav = [
   { href: "/dashboard", label: "Дашборд", icon: HomeIcon },
   { href: "/students", label: "Ученики", icon: UserGroupIcon },
   { href: "/lessons", label: "Занятия", icon: CalendarDaysIcon },
+  { href: "/prompts", label: "Промпты ДЗ", icon: SparklesIcon },
   { href: "/boards", label: "Виртуальная доска", icon: PencilSquareIcon },
   { href: "/settings", label: "Настройки", icon: Cog6ToothIcon },
 ];

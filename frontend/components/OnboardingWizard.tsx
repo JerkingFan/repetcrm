@@ -10,7 +10,6 @@ import {
   ChevronRightIcon,
   ChevronLeftIcon,
 } from "@heroicons/react/24/outline";
-import { getToken } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
 import ChipSelect from "@/components/ChipSelect";
 import { SUBJECT_PRESETS, GRADE_PRESETS, TEACHING_FORMATS } from "@/lib/constants";
@@ -53,13 +52,8 @@ export default function OnboardingWizard() {
   }, []);
 
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
-      router.replace("/login");
-      return;
-    }
     api
-      .me(token)
+      .me()
       .then((u) => {
         if (u.onboarding_completed && !retake) {
           router.replace("/dashboard");
@@ -90,12 +84,10 @@ export default function OnboardingWizard() {
   const back = () => setStep((s) => Math.max(s - 1, 0));
 
   const finish = async () => {
-    const token = getToken();
-    if (!token) return;
     setLoading(true);
     setError("");
     try {
-      await api.completeOnboarding(token, {
+      await api.completeOnboarding({
         subjects,
         grade_levels: gradeLevels,
         teaching_format: teachingFormat,

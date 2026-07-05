@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { resolveBoardImageUrl } from "@/lib/boardImageCache";
 import type { BoardState } from "@/components/Whiteboard";
 
 type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
@@ -59,11 +60,8 @@ function strokeWidthPreviewPx(strokeWidth: number, fitScale: number): number {
   return Math.max(0.75, Math.min(2.5, world * fitScale));
 }
 
-function resolveImageUrl(url: string): string {
-  if (typeof window === "undefined") return url;
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (url.startsWith("/")) return `${window.location.origin}${url}`;
-  return url;
+function resolveImageUrl(url: string, shareToken?: string): string {
+  return resolveBoardImageUrl(url, shareToken);
 }
 
 function drawStrokePath(ctx: CanvasRenderingContext2D, pts: Point[], toScreen: (p: Point) => Point) {
@@ -91,9 +89,11 @@ function drawStrokePath(ctx: CanvasRenderingContext2D, pts: Point[], toScreen: (
 export default function BoardPreview({
   state: rawState,
   className = "",
+  shareToken,
 }: {
   state?: BoardState;
   className?: string;
+  shareToken?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -193,7 +193,7 @@ export default function BoardPreview({
           await new Promise<void>((resolve, reject) => {
             image.onload = () => resolve();
             image.onerror = () => reject(new Error("load failed"));
-            image.src = resolveImageUrl(im.url);
+            image.src = resolveImageUrl(im.url, shareToken);
           });
           if (cancelled) return;
           ctx.drawImage(image, tl.x, tl.y, iw, ih);
@@ -208,7 +208,7 @@ export default function BoardPreview({
     return () => {
       cancelled = true;
     };
-  }, [rawState]);
+  }, [rawState, shareToken]);
 
   return (
     <canvas

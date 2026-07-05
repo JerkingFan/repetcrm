@@ -9,7 +9,6 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
 } from "@heroicons/react/24/outline";
-import { getToken } from "@/lib/auth";
 import { api, LessonListItem } from "@/lib/api";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import LessonsCalendar, { CalendarLesson } from "@/components/LessonsCalendar";
@@ -44,6 +43,13 @@ export default function LessonsPage() {
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"calendar" | "list">("calendar");
+  const [students, setStudents] = useState<{ id: number; name: string }[]>([]);
+  const [filters, setFilters] = useState({
+    student_id: "",
+    is_paid: "",
+    is_conducted: "",
+    status: "",
+  });
   const [cursor, setCursor] = useState(() => {
     const n = new Date();
     return { year: n.getFullYear(), month: n.getMonth() };
@@ -52,15 +58,24 @@ export default function LessonsPage() {
   const [editLesson, setEditLesson] = useState<LessonFormData | null>(null);
 
   const loadLessons = useCallback(() => {
-    const token = getToken();
-    if (!token) return;
     const { from, to } = monthDateRange(cursor.year, cursor.month);
     setLoading(true);
+    const params: Parameters<typeof api.lessons.list>[0] = { from, to };
+    if (filters.student_id) params.student_id = Number(filters.student_id);
+    if (filters.is_paid === "paid") params.is_paid = true;
+    if (filters.is_paid === "unpaid") params.is_paid = false;
+    if (filters.is_conducted === "yes") params.is_conducted = true;
+    if (filters.is_conducted === "no") params.is_conducted = false;
+    if (filters.status) params.status = filters.status;
     api.lessons
-      .list(token, { from, to })
+      .list(params)
       .then((items) => setLessons(items.map(toCalendarLesson)))
       .finally(() => setLoading(false));
-  }, [cursor]);
+  }, [cursor, filters]);
+
+  useEffect(() => {
+    api.students.listAll().then(setStudents);
+  }, []);
 
   useEffect(() => {
     loadLessons();
@@ -182,6 +197,62 @@ export default function LessonsPage() {
         </div>
       </div>
 
+      <div className="mt-6 flex flex-wrap gap-3 p-4 rounded-2xl bg-white border border-slate-100">
+        <select
+          value={filters.student_id}
+          onChange={(e) => setFilters((f) => ({ ...f, student_id: e.target.value }))}
+          className="px-3 py-2 rounded-xl border text-sm"
+        >
+          <option value="">Все ученики</option>
+          {students.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filters.is_paid}
+          onChange={(e) => setFilters((f) => ({ ...f, is_paid: e.target.value }))}
+          className="px-3 py-2 rounded-xl border text-sm"
+        >
+          <option value="">Оплата: все</option>
+          <option value="paid">Оплачено</option>
+          <option value="unpaid">Не оплачено</option>
+        </select>
+        <select
+          value={filters.is_conducted}
+          onChange={(e) => setFilters((f) => ({ ...f, is_conducted: e.target.value }))}
+          className="px-3 py-2 rounded-xl border text-sm"
+        >
+          <option value="">Проведение: все</option>
+          <option value="yes">Проведено</option>
+          <option value="no">Не проведено</option>
+        </select>
+        <select
+          value={filters.status}
+          onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+          className="px-3 py-2 rounded-xl border text-sm"
+        >
+          <option value="">Статус: все</option>
+          <option value="scheduled">Запланировано</option>
+          <option value="completed">Завершено</option>
+          <option value="cancelled">Отменено</option>
+          <option value="no_show">Неявка</option>
+          <option value="rescheduled">Перенесено</option>
+        </select>
+        {(filters.student_id || filters.is_paid || filters.is_conducted || filters.status) && (
+          <button
+            type="button"
+            onClick={() =>
+              setFilters({ student_id: "", is_paid: "", is_conducted: "", status: "" })
+            }
+            className="px-3 py-2 text-sm text-brand-blue hover:underline"
+          >
+            Сбросить
+          </button>
+        )}
+      </div>
+
       {view === "calendar" ? (
         <div className="mt-8">
           <LessonsCalendar
@@ -199,7 +270,63 @@ export default function LessonsPage() {
       ) : (
         <div className="mt-8">
           {monthNav}
-          <div className="overflow-x-auto rounded-2xl bg-white border border-slate-100 shadow-sm">
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-3">
+            {lessons.map((l) => (
+              <div
+                key={l.id}
+                className="p-4 rounded-2xl bg-white border border-slate-100 shadow-sm space-y-3"
+              >
+                <div className="flex justify-between items-start gap-2">
+                  <div>
+                    <p className="font-semibold text-brand-blue">{l.student_name}</p>
+                    <p className="text-sm text-slate-600 mt-0.5">
+                      {new Date(l.lesson_date).toLocaleDateString("ru-RU")} ·{" "}
+                      {formatLessonTime(l.lesson_time)}
+                    </p>
+                  </div>
+                  <span className="text-xs text-slate-500">{l.duration_minutes} мин</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await api.lessons.togglePaid(l.id, !l.is_paid);
+                      loadLessons();
+                    }}
+                    className={`flex-1 min-w-[120px] py-2 rounded-xl text-sm font-medium border ${
+                      l.is_paid
+                        ? "border-brand-green text-brand-green bg-emerald-50"
+                        : "border-amber-300 text-amber-700 bg-amber-50"
+                    }`}
+                  >
+                    {l.is_paid ? `✓ ${formatMoney(l.payment_amount)}` : "Не оплачено"}
+                  </button>
+                  {l.board_id ? (
+                    <a
+                      href={`/boards/${l.board_id}?lesson=${l.id}`}
+                      className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium"
+                    >
+                      Доска
+                    </a>
+                  ) : null}
+                  <a
+                    href={`/lessons/${l.id}`}
+                    className="px-4 py-2 rounded-xl border text-sm font-medium text-brand-blue"
+                  >
+                    Урок
+                  </a>
+                </div>
+              </div>
+            ))}
+            {lessons.length === 0 && (
+              <p className="p-8 text-center text-slate-500 rounded-2xl bg-white border">
+                Нет занятий в этом месяце
+              </p>
+            )}
+          </div>
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto rounded-2xl bg-white border border-slate-100 shadow-sm">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left">
                 <tr>

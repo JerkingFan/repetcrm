@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import User, Student, Lesson, ChecklistItem, Homework, Board, LessonStatus
+from app.models import User, Student, Lesson, ChecklistItem, Homework, Board, LessonStatus, LessonSeries
 from app.schemas import (
     LessonCreate,
     LessonUpdate,
@@ -20,9 +20,14 @@ from app.schemas import (
     LessonReportCreate,
     HomeworkPrefs,
     DashboardStats,
+    DashboardExtended,
     HomeworkOut,
     HomeworkJobOut,
     HomeworkJobStartOut,
+    LessonCreateResult,
+    LessonSeriesOut,
+    LessonRecurrenceIn,
+    QuickConductOut,
 )
 from app.services.homework_prefs import (
     apply_prefs_to_checklist,
@@ -38,9 +43,14 @@ from app.services.dashboard_cache import (
     invalidate_dashboard,
     set_cached_dashboard,
 )
+from app.services.dashboard_extended import build_extended_dashboard
 from app.services.job_queue import job_queue, ARQ_TASK_GENERATE_HOMEWORK
 from app.services.job_tasks import run_generate_homework
 from app.services.pdf import invalidate_homework_pdf
+from app.services.lesson_recurrence import expand_series
+from app.services.package_billing import try_auto_pay_lesson
+from app.services.student_lifecycle import touch_student_lesson_dates
+from app.services.trial_funnel_service import get_trial_followup
 
 router = APIRouter(tags=["lessons"])
 
@@ -82,6 +92,7 @@ def lesson_to_out(lesson: Lesson) -> LessonOut:
         notes=lesson.notes,
         created_at=lesson.created_at,
         student_name=lesson.student.name if lesson.student else None,
+        series_id=getattr(lesson, "series_id", None),
         checklist_items=lesson.checklist_items,
         homework=lesson.homework,
     )
@@ -204,15 +215,24 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
     return stats
 
 
+@router.get("/dashboard/extended", response_model=DashboardExtended)
+def dashboard_extended(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return build_extended_dashboard(db, user.id, tutor_name=user.name or "")
+
+
 @router.get("/lessons", response_model=list[LessonListItem])
 def list_lessons(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     from_date: date | None = Query(None, alias="from", description="Начало периода (YYYY-MM-DD)"),
     to_date: date | None = Query(None, alias="to", description="Конец периода (YYYY-MM-DD)"),
+    student_id: int | None = Query(None, description="Фильтр по ученику"),
+    is_paid: bool | None = Query(None, description="Оплачено / не оплачено"),
+    is_conducted: bool | None = Query(None, description="Проведено / не проведено"),
+    status: str | None = Query(None, description="scheduled|completed|cancelled|no_show|rescheduled"),
 ):
     range_start, range_end = _resolve_lesson_range(from_date, to_date)
-    rows = (
+    q = (
         db.query(Lesson, Student.name, Homework.id)
         .join(Student, Lesson.student_id == Student.id)
         .outerjoin(Homework, Homework.lesson_id == Lesson.id)
@@ -221,31 +241,94 @@ def list_lessons(
             Lesson.lesson_date >= range_start,
             Lesson.lesson_date <= range_end,
         )
-        .order_by(Lesson.lesson_date.desc(), Lesson.lesson_time.desc())
-        .all()
     )
+    if student_id is not None:
+        q = q.filter(Lesson.student_id == student_id)
+    if is_paid is not None:
+        q = q.filter(Lesson.is_paid.is_(is_paid))
+    if is_conducted is not None:
+        q = q.filter(Lesson.is_conducted.is_(is_conducted))
+    if status is not None:
+        q = q.filter(Lesson.status == status.strip().lower())
+    rows = q.order_by(Lesson.lesson_date.desc(), Lesson.lesson_time.desc()).all()
     return [
         lesson_list_item(lesson, student_name=student_name, homework_id=homework_id)
         for lesson, student_name, homework_id in rows
     ]
 
 
-@router.post("/lessons", response_model=LessonOut, status_code=201)
+@router.post("/lessons", response_model=LessonCreateResult, status_code=201)
 def create_lesson(data: LessonCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     student = db.query(Student).filter(Student.id == data.student_id, Student.tutor_id == user.id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
-    # Auto-create a board for the lesson
-    board = Board(owner_id=user.id, title=f"Доска: {student.name}", share_token=secrets.token_urlsafe(24))
+
+    series_out: LessonSeriesOut | None = None
+    payload = data.model_dump(exclude={"recurrence"})
+    recurrence: LessonRecurrenceIn | None = data.recurrence
+
+    if recurrence:
+        if data.lesson_date.weekday() != recurrence.weekday:
+            raise HTTPException(
+                status_code=400,
+                detail="lesson_date weekday must match recurrence.weekday",
+            )
+        series = LessonSeries(
+            tutor_id=user.id,
+            student_id=data.student_id,
+            weekday=recurrence.weekday,
+            lesson_time=data.lesson_time,
+            duration_minutes=data.duration_minutes,
+            payment_amount=data.payment_amount,
+            notes=data.notes or "",
+            starts_on=data.lesson_date,
+            until_date=recurrence.until_date,
+            weeks_ahead=recurrence.weeks_ahead,
+        )
+        db.add(series)
+        db.flush()
+        created_n = expand_series(db, series)
+        db.flush()
+        first_lesson = (
+            db.query(Lesson)
+            .filter(Lesson.series_id == series.id)
+            .order_by(Lesson.lesson_date.asc())
+            .first()
+        )
+        if not first_lesson:
+            raise HTTPException(status_code=500, detail="Failed to create recurring lessons")
+        db.commit()
+        invalidate_dashboard(user.id)
+        lesson = get_lesson_or_404(first_lesson.id, user, db)
+        series_out = LessonSeriesOut(
+            id=series.id,
+            student_id=series.student_id,
+            weekday=series.weekday,
+            lesson_time=series.lesson_time,
+            duration_minutes=series.duration_minutes,
+            payment_amount=series.payment_amount,
+            starts_on=series.starts_on,
+            until_date=series.until_date,
+            weeks_ahead=series.weeks_ahead,
+            is_active=series.is_active,
+            lessons_created=created_n,
+        )
+        return LessonCreateResult(lesson=lesson_to_out(lesson), series=series_out)
+
+    board = Board(
+        owner_id=user.id,
+        title=f"Доска: {student.name}",
+        share_token=secrets.token_urlsafe(24),
+        share_writable=False,
+    )
     db.add(board)
     db.flush()
-    lesson = Lesson(tutor_id=user.id, board_id=board.id, **data.model_dump())
+    lesson = Lesson(tutor_id=user.id, board_id=board.id, **payload)
     db.add(lesson)
     db.commit()
-    db.refresh(lesson)
     invalidate_dashboard(user.id)
     lesson = get_lesson_or_404(lesson.id, user, db)
-    return lesson_to_out(lesson)
+    return LessonCreateResult(lesson=lesson_to_out(lesson), series=None)
 
 
 @router.get("/lessons/{lesson_id}", response_model=LessonOut)
@@ -269,7 +352,16 @@ def update_lesson(
             lesson.is_conducted = True
     for k, v in updates.items():
         setattr(lesson, k, v)
+    if updates.get("is_paid") is True and not lesson.paid_at:
+        lesson.paid_at = datetime.utcnow()
+        if not lesson.payment_source:
+            lesson.payment_source = "manual"
+    if updates.get("is_paid") is False:
+        lesson.paid_at = None
+        lesson.payment_source = None
     boundary_sync = _maybe_sync_boundaries(db, user, lesson.student_id, set(updates.keys()))
+    if lesson.is_conducted and not lesson.is_paid:
+        try_auto_pay_lesson(db, lesson)
     db.commit()
     invalidate_dashboard(user.id)
     lesson = get_lesson_or_404(lesson_id, user, db)
@@ -314,9 +406,39 @@ def save_lesson_report(
         db.add(ChecklistItem(lesson_id=lesson_id, **item.model_dump()))
     lesson.is_conducted = data.is_conducted
     lesson.homework_prefs = serialize_homework_prefs(data.prefs.model_dump())
+    if lesson.is_conducted:
+        touch_student_lesson_dates(db, lesson.student_id, lesson.lesson_date)
+    if lesson.is_conducted and not lesson.is_paid:
+        try_auto_pay_lesson(db, lesson)
     db.commit()
     lesson = get_lesson_or_404(lesson_id, user, db)
     return lesson_to_out(lesson)
+
+
+@router.post("/lessons/{lesson_id}/quick-conduct", response_model=QuickConductOut)
+def quick_conduct_lesson(
+    lesson_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Mark trial lesson as conducted without full checklist (dashboard shortcut)."""
+    lesson = get_lesson_or_404(lesson_id, user, db)
+    if lesson.is_conducted:
+        raise HTTPException(status_code=400, detail="Lesson already conducted")
+    lesson.is_conducted = True
+    lesson.status = LessonStatus.completed.value
+    touch_student_lesson_dates(db, lesson.student_id, lesson.lesson_date)
+    if not lesson.is_paid:
+        try_auto_pay_lesson(db, lesson)
+    db.commit()
+    invalidate_dashboard(user.id)
+    student = db.query(Student).filter(Student.id == lesson.student_id).first()
+    followup = get_trial_followup(db, student, user.name or "") if student else None
+    return QuickConductOut(
+        lesson_id=lesson.id,
+        is_conducted=True,
+        trial_followup=followup if followup and followup.show else None,
+    )
 
 
 @router.post("/lessons/{lesson_id}/generate-homework", response_model=HomeworkOut)

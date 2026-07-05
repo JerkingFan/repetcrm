@@ -7,13 +7,18 @@ import random
 import httpx
 
 from app.config import get_settings
+from app.services.circuit_breaker import CircuitBreaker, CircuitOpenError
 from app.services.homework_output import coerce_openrouter_latex
 from app.services.homework_prefs import parse_homework_prefs
 from app.services.prompts import build_homework_prompt, build_homework_system_prompt
 
 logger = logging.getLogger(__name__)
 
-
+_openrouter_circuit = CircuitBreaker(
+    "openrouter",
+    failure_threshold=get_settings().openrouter_circuit_failures,
+    reset_timeout_sec=get_settings().openrouter_circuit_reset_sec,
+)
 
 class OpenRouterError(Exception):
     pass
@@ -64,6 +69,11 @@ def _headers() -> dict[str, str]:
 
 async def _call_openrouter(messages: list[dict]) -> str:
     cfg = get_settings()
+    try:
+        _openrouter_circuit.before_call()
+    except CircuitOpenError as exc:
+        raise OpenRouterError("OpenRouter временно недоступен (circuit open)") from exc
+
     payload = {
         "model": cfg.openrouter_model,
         "messages": messages,
@@ -105,8 +115,10 @@ async def _call_openrouter(messages: list[dict]) -> str:
             raw = (choices[0].get("message") or {}).get("content") or ""
             if not raw.strip():
                 raise OpenRouterError("Пустой текст от OpenRouter")
+            _openrouter_circuit.record_success()
             return raw
         except OpenRouterError:
+            _openrouter_circuit.record_failure()
             raise
         except httpx.TimeoutException as e:
             last_error = e
@@ -128,6 +140,7 @@ async def _call_openrouter(messages: list[dict]) -> str:
                 continue
             raise OpenRouterError(f"Ошибка сети OpenRouter: {e}") from e
 
+    _openrouter_circuit.record_failure()
     raise OpenRouterError(f"OpenRouter недоступен: {last_error}")
 
 

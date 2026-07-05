@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import { getToken } from "@/lib/auth";
 import Alert from "@/components/Alert";
 import BoardPreview from "@/components/BoardPreview";
 import LoadingSpinner from "@/components/LoadingSpinner";
@@ -27,9 +26,7 @@ export default function BoardsPage() {
   const [creating, setCreating] = useState(false);
 
   const load = async () => {
-    const token = getToken();
-    if (!token) return;
-    const data = (await api.boards.list(token)) as Board[];
+    const data = (await api.boards.list()) as Board[];
     setBoards(data);
   };
 
@@ -38,12 +35,10 @@ export default function BoardsPage() {
   }, []);
 
   const create = async () => {
-    const token = getToken();
-    if (!token) return;
     setError("");
     setCreating(true);
     try {
-      const b = (await api.boards.create(token, title)) as { id: number };
+      const b = (await api.boards.create(title)) as { id: number };
       router.push(`/boards/${b.id}`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Не удалось создать доску");
@@ -90,7 +85,7 @@ export default function BoardsPage() {
               className="rounded-2xl bg-white border shadow-sm hover:shadow-md transition overflow-hidden flex flex-col"
             >
               <div className="aspect-[5/3] w-full bg-slate-50 border-b border-slate-100">
-                <BoardPreview state={b.state_json} className="w-full h-full" />
+                <BoardPreview state={b.state_json} shareToken={b.share_token} className="w-full h-full" />
               </div>
               <div className="p-4 flex items-center justify-between gap-3">
                 <div className="min-w-0">

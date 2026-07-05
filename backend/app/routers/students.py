@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import User, Student, Lesson, Homework
+from app.models import User, Student, Lesson, Homework, LessonPackage
 from app.schemas import (
     StudentCreate,
     StudentUpdate,
@@ -11,9 +12,19 @@ from app.schemas import (
     StudentListPage,
     StudentLessonsPage,
     StudentLessonHistoryItem,
+    StudentHomeworkPage,
+    StudentHomeworkItem,
     StudentBoundariesOut,
     BoundaryApplyIn,
     BoundaryMessageOut,
+    PortalLinkOut,
+    ParentPortalLinkOut,
+    ParentMonthlyReportOut,
+    MessageOut,
+    TrialFollowupOut,
+    LessonPackageCreate,
+    LessonPackageOut,
+    StudentBalanceTopUp,
 )
 from app.services.boundaries import (
     decide_boundary_mode,
@@ -24,6 +35,18 @@ from app.services.boundaries import (
 )
 from app.services.dashboard_cache import invalidate_dashboard
 from app.services.student_search import apply_student_name_search
+from app.services.portal_token import (
+    ensure_portal_token,
+    regenerate_portal_token,
+    ensure_parent_portal_token,
+    regenerate_parent_portal_token,
+)
+from app.services.parent_contact import sync_parent_contact
+from app.services.parent_report_service import build_parent_monthly_report, resolve_month
+from app.services.parent_report_pdf import generate_parent_report_pdf, read_parent_report_pdf_bytes
+from app.services.parent_notifications import send_parent_monthly_report_email
+from app.services.trial_funnel_service import get_trial_followup
+from app.config import get_settings
 from app.models import StudentBoundaryMode
 
 router = APIRouter(prefix="/students", tags=["students"])
@@ -62,7 +85,11 @@ def list_students(
 @router.post("", response_model=StudentOut, status_code=201)
 def create_student(data: StudentCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     student = Student(tutor_id=user.id, **data.model_dump())
+    sync_parent_contact(student)
     db.add(student)
+    db.flush()
+    ensure_portal_token(db, student)
+    ensure_parent_portal_token(db, student)
     db.commit()
     db.refresh(student)
     invalidate_dashboard(user.id)
@@ -121,6 +148,56 @@ def list_student_lessons(
         for lesson in rows
     ]
     return StudentLessonsPage(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        has_more=offset + len(rows) < total,
+    )
+
+
+@router.get("/{student_id}/homework", response_model=StudentHomeworkPage)
+def list_student_homework(
+    student_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    base = (
+        db.query(Homework, Lesson.lesson_date)
+        .join(Lesson, Homework.lesson_id == Lesson.id)
+        .filter(Lesson.tutor_id == user.id, Lesson.student_id == student_id)
+    )
+    total = base.count()
+    offset = (page - 1) * page_size
+    rows = (
+        base.order_by(Lesson.lesson_date.desc(), Homework.id.desc())
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
+
+    def _preview(text: str) -> str:
+        clean = " ".join((text or "").split())
+        return clean[:200] + ("…" if len(clean) > 200 else "")
+
+    items = [
+        StudentHomeworkItem(
+            id=hw.id,
+            lesson_id=hw.lesson_id,
+            lesson_date=lesson_date,
+            preview=_preview(hw.homework_text),
+            created_at=hw.created_at,
+            updated_at=hw.updated_at,
+        )
+        for hw, lesson_date in rows
+    ]
+    return StudentHomeworkPage(
         items=items,
         total=total,
         page=page,
@@ -224,6 +301,7 @@ def update_student(
         raise HTTPException(status_code=404, detail="Student not found")
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(student, k, v)
+    sync_parent_contact(student)
     db.commit()
     db.refresh(student)
     return student
@@ -237,3 +315,190 @@ def delete_student(student_id: int, user: User = Depends(get_current_user), db: 
     db.delete(student)
     db.commit()
     invalidate_dashboard(user.id)
+
+
+@router.get("/{student_id}/portal-link", response_model=PortalLinkOut)
+def get_portal_link(student_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    token = ensure_portal_token(db, student)
+    db.commit()
+    base = get_settings().frontend_public_url.rstrip("/")
+    return PortalLinkOut(portal_token=token, portal_url=f"{base}/portal?token={token}")
+
+
+@router.post("/{student_id}/portal-link/regenerate", response_model=PortalLinkOut)
+def regenerate_portal_link(
+    student_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    token = regenerate_portal_token(db, student)
+    db.commit()
+    base = get_settings().frontend_public_url.rstrip("/")
+    return PortalLinkOut(portal_token=token, portal_url=f"{base}/portal?token={token}")
+
+
+@router.get("/{student_id}/parent-portal-link", response_model=ParentPortalLinkOut)
+def get_parent_portal_link(student_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    token = ensure_parent_portal_token(db, student)
+    db.commit()
+    base = get_settings().frontend_public_url.rstrip("/")
+    return ParentPortalLinkOut(
+        parent_portal_token=token,
+        parent_portal_url=f"{base}/parent?token={token}",
+    )
+
+
+@router.post("/{student_id}/parent-portal-link/regenerate", response_model=ParentPortalLinkOut)
+def regenerate_parent_portal_link(
+    student_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    token = regenerate_parent_portal_token(db, student)
+    db.commit()
+    base = get_settings().frontend_public_url.rstrip("/")
+    return ParentPortalLinkOut(
+        parent_portal_token=token,
+        parent_portal_url=f"{base}/parent?token={token}",
+    )
+
+
+@router.get("/{student_id}/packages", response_model=list[LessonPackageOut])
+def list_packages(student_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    rows = (
+        db.query(LessonPackage)
+        .filter(LessonPackage.student_id == student_id, LessonPackage.tutor_id == user.id)
+        .order_by(LessonPackage.created_at.desc())
+        .all()
+    )
+    return rows
+
+
+@router.post("/{student_id}/packages", response_model=LessonPackageOut, status_code=201)
+def create_package(
+    student_id: int,
+    data: LessonPackageCreate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    if data.prepaid_amount > 0:
+        student.balance = round(float(student.balance or 0) + data.prepaid_amount, 2)
+    pkg = LessonPackage(
+        tutor_id=user.id,
+        student_id=student_id,
+        name=data.name,
+        lessons_total=data.lessons_total,
+        lessons_remaining=data.lessons_total,
+        price_per_lesson=data.price_per_lesson,
+        is_active=True,
+    )
+    db.add(pkg)
+    db.commit()
+    db.refresh(pkg)
+    return pkg
+
+
+@router.post("/{student_id}/balance", response_model=StudentOut)
+def top_up_balance(
+    student_id: int,
+    data: StudentBalanceTopUp,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    student.balance = round(float(student.balance or 0) + data.amount, 2)
+    db.commit()
+    db.refresh(student)
+    return student
+
+
+@router.get("/{student_id}/trial-followup", response_model=TrialFollowupOut)
+def get_student_trial_followup(
+    student_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    return get_trial_followup(db, student, user.name or "")
+
+
+@router.get("/{student_id}/parent-report", response_model=ParentMonthlyReportOut)
+def get_student_parent_report(
+    student_id: int,
+    month: str | None = Query(None, description="YYYY-MM"),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    try:
+        month_key = resolve_month(month)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return build_parent_monthly_report(db, student=student, tutor=user, month=month_key)
+
+
+@router.get("/{student_id}/parent-report.pdf")
+def download_student_parent_report_pdf(
+    student_id: int,
+    month: str | None = Query(None, description="YYYY-MM"),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    try:
+        month_key = resolve_month(month)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    report = build_parent_monthly_report(db, student=student, tutor=user, month=month_key)
+    path = generate_parent_report_pdf(report, student_id=student.id)
+    filename = f"otchet-{student.name.replace(' ', '_')}-{month_key}.pdf"
+    return FileResponse(path, media_type="application/pdf", filename=filename)
+
+
+@router.post("/{student_id}/parent-report/send", response_model=MessageOut)
+def send_student_parent_report(
+    student_id: int,
+    month: str | None = Query(None, description="YYYY-MM"),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    if not (student.parent_email or "").strip():
+        raise HTTPException(status_code=400, detail="Parent email not set")
+    try:
+        month_key = resolve_month(month)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    report = build_parent_monthly_report(db, student=student, tutor=user, month=month_key)
+    path = generate_parent_report_pdf(report, student_id=student.id)
+    pdf_bytes = read_parent_report_pdf_bytes(path)
+    if not send_parent_monthly_report_email(
+        db, student=student, tutor=user, report=report, pdf_bytes=pdf_bytes
+    ):
+        raise HTTPException(status_code=502, detail="Could not send email (check SMTP and parent email)")
+    db.commit()
+    return MessageOut(message="Report sent")

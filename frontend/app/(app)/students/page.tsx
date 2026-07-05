@@ -11,7 +11,6 @@ import {
   PhoneIcon,
   MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
-import { getToken } from "@/lib/auth";
 import { api, ApiError, StudentListItem } from "@/lib/api";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import Alert from "@/components/Alert";
@@ -23,6 +22,10 @@ const emptyForm = {
   grade: "",
   school: "",
   contact: "",
+  parent_name: "",
+  parent_email: "",
+  parent_phone: "",
+  parent_notify_email: true,
   parent_contact: "",
   notes: "",
 };
@@ -71,12 +74,10 @@ export default function StudentsPage() {
   }, [search]);
 
   const load = useCallback(() => {
-    const token = getToken();
-    if (!token) return;
     setLoading(true);
     Promise.all([
-      api.students.list(token, { q: searchDebounced || undefined, page, page_size: pageSize }),
-      profile ? Promise.resolve(null) : api.me(token),
+      api.students.list({ q: searchDebounced || undefined, page, page_size: pageSize }),
+      profile ? Promise.resolve(null) : api.me(),
     ])
       .then(([listRes, me]) => {
         setStudents(listRes.items);
@@ -114,6 +115,10 @@ export default function StudentsPage() {
       grade: s.grade,
       school: s.school,
       contact: s.contact,
+      parent_name: s.parent_name || "",
+      parent_email: s.parent_email || "",
+      parent_phone: s.parent_phone || "",
+      parent_notify_email: s.parent_notify_email ?? true,
       parent_contact: s.parent_contact,
       notes: s.notes,
     });
@@ -130,13 +135,11 @@ export default function StudentsPage() {
       setError("Выберите предмет и класс из вашего профиля");
       return;
     }
-    const token = getToken();
-    if (!token) return;
     try {
       if (modal === "create") {
-        await api.students.create(token, form);
+        await api.students.create(form);
       } else if (editId) {
-        await api.students.update(token, editId, form);
+        await api.students.update(editId, form);
       }
       setModal(null);
       setError("");
@@ -148,10 +151,8 @@ export default function StudentsPage() {
 
   const remove = async (id: number) => {
     if (!confirm("Удалить ученика и все связанные занятия?")) return;
-    const token = getToken();
-    if (!token) return;
     try {
-      await api.students.delete(token, id);
+      await api.students.delete(id);
       load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Ошибка удаления");
@@ -248,10 +249,11 @@ export default function StudentsPage() {
                       Ученик: {s.contact}
                     </p>
                   )}
-                  {s.parent_contact && (
+                  {(s.parent_name || s.parent_email || s.parent_phone || s.parent_contact) && (
                     <p className="flex items-center gap-1.5">
                       <PhoneIcon className="w-3.5 h-3.5" />
-                      Родитель: {s.parent_contact}
+                      Родитель:{" "}
+                      {s.parent_name || s.parent_email || s.parent_phone || s.parent_contact}
                     </p>
                   )}
                 </div>
@@ -305,9 +307,18 @@ export default function StudentsPage() {
                   <td className="px-4 py-3">{s.subject || "—"}</td>
                   <td className="px-4 py-3">{s.school || "—"}</td>
                   <td className="px-4 py-3 text-xs text-slate-500">
-                    {s.parent_contact && <div>Род.: {s.parent_contact}</div>}
+                    {(s.parent_name || s.parent_email || s.parent_phone || s.parent_contact) && (
+                      <div>
+                        Род.: {s.parent_name || s.parent_email || s.parent_phone || s.parent_contact}
+                      </div>
+                    )}
                     {s.contact && <div>Учен.: {s.contact}</div>}
-                    {!s.parent_contact && !s.contact && "—"}
+                    {!s.parent_name &&
+                      !s.parent_email &&
+                      !s.parent_phone &&
+                      !s.parent_contact &&
+                      !s.contact &&
+                      "—"}
                   </td>
                   <td className="px-4 py-3">
                     <button onClick={() => openEdit(s)} className="text-brand-blue text-xs hover:underline">
@@ -426,6 +437,51 @@ export default function StudentsPage() {
                   placeholder="Лицей № 12"
                 />
               </div>
+              <div className="sm:col-span-2 border-t border-slate-100 pt-4 mt-2">
+                <p className="text-sm font-semibold text-brand-blue mb-3">Родитель (плательщик)</p>
+                <p className="text-xs text-slate-400 mb-3">
+                  Сюда уйдут ссылка на кабинет, счета и напоминания об оплате
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Имя родителя</label>
+                <input
+                  value={form.parent_name}
+                  onChange={(e) => setForm({ ...form, parent_name: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl border"
+                  placeholder="Мария"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Email родителя</label>
+                <input
+                  type="email"
+                  value={form.parent_email}
+                  onChange={(e) => setForm({ ...form, parent_email: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl border"
+                  placeholder="parent@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Телефон родителя</label>
+                <input
+                  value={form.parent_phone}
+                  onChange={(e) => setForm({ ...form, parent_phone: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl border"
+                  placeholder="+375 ..."
+                />
+              </div>
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.parent_notify_email}
+                    onChange={(e) => setForm({ ...form, parent_notify_email: e.target.checked })}
+                    className="rounded border-slate-300"
+                  />
+                  Уведомлять по email
+                </label>
+              </div>
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">Контакт ученика</label>
                 <input
@@ -433,15 +489,6 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, contact: e.target.value })}
                   className="w-full px-4 py-3 rounded-xl border"
                   placeholder="Telegram, телефон"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Контакт родителя</label>
-                <input
-                  value={form.parent_contact}
-                  onChange={(e) => setForm({ ...form, parent_contact: e.target.value })}
-                  className="w-full px-4 py-3 rounded-xl border"
-                  placeholder="+7 ..."
                 />
               </div>
               <div className="sm:col-span-2">

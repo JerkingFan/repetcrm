@@ -38,7 +38,7 @@ mkdir -p backend/data
 sqlite3 backend/data/repetcrm.db < deploy/sql/sqlite/01_schema.sql
 ```
 
-Или приложение создаст таблицы само при старте (`init_db()`).
+Или приложение применит миграции Alembic при старте (`init_db()` → `alembic upgrade head`).
 
 `DATABASE_URL`:
 ```
@@ -47,5 +47,15 @@ sqlite:///./data/repetcrm.db
 
 ## Миграции
 
-Папка `migrations/` — для обновления **уже существующей** базы без пересоздания.
+**Основной способ (с версии с Alembic):** `backend/alembic/versions/` — миграции применяются автоматически при старте API и worker.
+
+```bash
+cd backend
+# вручную:
+DATABASE_URL=sqlite:///./data/repetcrm.db python -m alembic upgrade head
+# существующая БД без alembic_version (обновление со старой версии):
+DATABASE_URL=... python -m alembic stamp head
+```
+
+Папка `deploy/sql/migrations/` — **устаревшие** SQL-скрипты для ручного обновления без Alembic (архив).
 На чистом сервере достаточно `01_schema.sql`.

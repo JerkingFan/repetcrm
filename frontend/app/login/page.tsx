@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import { setToken } from "@/lib/auth";
+import { clearLegacyToken } from "@/lib/auth";
 import Alert from "@/components/Alert";
 
 const QUOTES = [
@@ -25,9 +25,9 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      const { access_token } = await api.login(email, password);
-      setToken(access_token);
-      const user = await api.me(access_token);
+      await api.login(email, password);
+      clearLegacyToken();
+      const user = await api.me();
       router.push(user.onboarding_completed ? "/dashboard" : "/onboarding");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Ошибка входа");
@@ -62,11 +62,16 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Пароль</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-medium">Пароль</label>
+              <Link href="/forgot-password" className="text-sm text-brand-blue hover:underline">
+                Забыли пароль?
+              </Link>
+            </div>
             <input
               type="password"
               required
-              minLength={6}
+              minLength={10}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green outline-none"

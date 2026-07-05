@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import { setToken } from "@/lib/auth";
+import { clearLegacyToken } from "@/lib/auth";
 import Alert from "@/components/Alert";
 
 export default function RegisterPage() {
@@ -20,8 +20,8 @@ export default function RegisterPage() {
     setError("");
     setLoading(true);
     try {
-      const { access_token } = await api.register(email, password, name);
-      setToken(access_token);
+      await api.register(email, password, name);
+      clearLegacyToken();
       router.push("/onboarding");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Ошибка регистрации");
@@ -56,11 +56,11 @@ export default function RegisterPage() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Пароль (мин. 6)</label>
+          <label className="block text-sm font-medium mb-1">Пароль (мин. 10, буква и цифра)</label>
           <input
             type="password"
             required
-            minLength={6}
+            minLength={10}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-green/30 outline-none"

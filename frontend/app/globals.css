@@ -19,3 +19,7 @@ body {
   width: 28%;
   animation: pdf-progress-indeterminate 1.4s ease-in-out infinite;
 }
+
+.safe-area-pb {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}

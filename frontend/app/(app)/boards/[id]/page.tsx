@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import { getToken } from "@/lib/auth";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import Alert from "@/components/Alert";
 import Whiteboard, { BoardState } from "@/components/Whiteboard";
@@ -13,39 +12,51 @@ type Board = {
   id: number;
   title: string;
   share_token: string;
+  share_writable: boolean;
   state_json: BoardState;
 };
 
 export default function BoardPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
   const search = useSearchParams();
   const id = Number(params.id);
-  const authToken = getToken() || undefined;
   const lessonId = Number(search.get("lesson") || "") || null;
 
   const [board, setBoard] = useState<Board | null>(null);
   const [error, setError] = useState("");
+  const [snapshots, setSnapshots] = useState<Array<{ id: number; created_at: string }>>([]);
+  const [stateKey, setStateKey] = useState(0);
+  const [showSnapshots, setShowSnapshots] = useState(false);
 
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
-      router.replace(`/login?next=${encodeURIComponent(`/boards/${id}`)}`);
-      return;
-    }
     let cancelled = false;
     api.boards
-      .get(token, id)
+      .get(id)
       .then((b) => {
         if (!cancelled) setBoard(b as Board);
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof ApiError ? e.message : "Не удалось загрузить доску");
       });
+    api.boards.listSnapshots(id).then((s) => {
+      if (!cancelled) setSnapshots(s);
+    });
     return () => {
       cancelled = true;
     };
-  }, [id, router]);
+  }, [id]);
+
+  const restoreSnapshot = async (snapshotId: number) => {
+    if (!confirm("Восстановить доску из этого снимка? Текущее состояние будет заменено.")) return;
+    try {
+      const restored = (await api.boards.restoreSnapshot(id, snapshotId)) as Board;
+      setBoard(restored);
+      setStateKey((k) => k + 1);
+      toast("Доска восстановлена из снимка", "success");
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Ошибка восстановления", "error");
+    }
+  };
 
   const shareUrl = useMemo(() => {
     if (!board || typeof window === "undefined") return "";
@@ -54,10 +65,6 @@ export default function BoardPage() {
     u.searchParams.set("token", board.share_token);
     return u.toString();
   }, [board]);
-
-  if (!getToken() && !board && !error) {
-    return <LoadingSpinner label="Перенаправление на вход…" />;
-  }
 
   if (!board && !error) return <LoadingSpinner label="Загрузка доски..." />;
 
@@ -71,10 +78,32 @@ export default function BoardPage() {
             <div>
               <h1 className="text-lg lg:text-xl font-bold text-brand-blue">{board.title || "Виртуальная доска"}</h1>
               <p className="text-slate-500 text-xs lg:text-sm mt-0.5">
-                Ссылка — для ученика без авторизации (онлайн-режим).
+                Ссылка — для ученика без авторизации. Рисование по ссылке можно включить отдельно.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+              <label className="flex items-center gap-2 text-sm text-slate-700 px-2">
+                <input
+                  type="checkbox"
+                  checked={board.share_writable}
+                  onChange={async (e) => {
+                    const share_writable = e.target.checked;
+                    try {
+                      const updated = (await api.boards.update(id, { share_writable })) as Board;
+                      setBoard(updated);
+                      toast(
+                        share_writable
+                          ? "Ученик может рисовать по ссылке"
+                          : "Ученик только смотрит (read-only)",
+                        "success"
+                      );
+                    } catch (err) {
+                      toast(err instanceof ApiError ? err.message : "Не удалось сохранить", "error");
+                    }
+                  }}
+                />
+                Ученик может рисовать
+              </label>
               {lessonId ? (
                 <a
                   className="px-4 py-2.5 rounded-xl bg-brand-green text-white font-semibold text-sm text-center"
@@ -100,6 +129,13 @@ export default function BoardPage() {
               >
                 Копировать
               </button>
+              <button
+                type="button"
+                className="px-4 py-2.5 rounded-xl border bg-white font-semibold text-sm"
+                onClick={() => setShowSnapshots((v) => !v)}
+              >
+                Снимки ({snapshots.length})
+              </button>
               <a
                 className="px-4 py-2.5 rounded-xl border bg-white font-semibold text-center text-sm"
                 href={shareUrl}
@@ -112,11 +148,35 @@ export default function BoardPage() {
           </div>
           </div>
 
+          {showSnapshots && (
+            <div className="absolute top-[76px] lg:top-[84px] right-4 z-30 w-72 max-h-[50vh] overflow-y-auto p-4 rounded-2xl bg-white border shadow-lg">
+              <p className="text-sm font-semibold text-brand-blue mb-2">Восстановление</p>
+              {snapshots.length === 0 ? (
+                <p className="text-xs text-slate-500">Снимков пока нет</p>
+              ) : (
+                <ul className="space-y-2">
+                  {snapshots.map((s) => (
+                    <li key={s.id}>
+                      <button
+                        type="button"
+                        onClick={() => restoreSnapshot(s.id)}
+                        className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-slate-50 border border-slate-100"
+                      >
+                        {new Date(s.created_at).toLocaleString("ru-RU")}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
           <div className="absolute inset-0 pt-[76px] lg:pt-[84px]">
             <Whiteboard
+              key={stateKey}
               boardId={board.id}
               shareToken={board.share_token}
-              authToken={authToken}
+              connectAsGuest={false}
               initialState={board.state_json}
               fullscreen
             />
@@ -126,4 +186,3 @@ export default function BoardPage() {
     </div>
   );
 }
-

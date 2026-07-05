@@ -24,6 +24,9 @@ server {
 
     client_max_body_size 20M;
 
+    # Rate limit: 10 req/s per IP with burst 40 (API)
+    limit_req_zone $binary_remote_addr zone=repetcrm_api:10m rate=10r/s;
+
     # WebSocket доски (долгие уроки): отдельный location с увеличенным таймаутом
     location /api/boards/ws/ {
         proxy_pass http://repetcrm_backend/boards/ws/;
@@ -39,6 +42,7 @@ server {
     }
 
     location /api/ {
+        limit_req zone=repetcrm_api burst=40 nodelay;
         proxy_pass http://repetcrm_backend/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

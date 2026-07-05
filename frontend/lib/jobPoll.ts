@@ -10,7 +10,6 @@ export type JobPollResult = {
 };
 
 export async function pollJobUntilDone(
-  token: string,
   jobId: string,
   onStatus?: (status: string) => void
 ): Promise<JobPollResult> {
@@ -18,7 +17,7 @@ export async function pollJobUntilDone(
 
   while (Date.now() < deadline) {
     try {
-      const j = await api.lessons.getJob(token, jobId);
+      const j = await api.lessons.getJob(jobId);
       onStatus?.(j.status);
       if (j.status === "done") {
         return { ok: true, result: j.result ?? null };

@@ -12,6 +12,8 @@ export const options = {
   },
 };
 
+const jar = http.cookieJar();
+
 export default function () {
   const url = baseUrl();
 
@@ -22,16 +24,15 @@ export default function () {
   const login = http.post(
     `${url}/auth/login`,
     JSON.stringify({ email: user.email, password: user.password }),
-    { headers: jsonHeaders(), tags: { name: "login" } }
+    { headers: jsonHeaders(), jar, tags: { name: "login" } }
   );
-  check(login, {
-    "login 200": (r) => r.status === 200,
-    "login has token": (r) => r.json("access_token"),
-  });
+  check(login, { "login 200": (r) => r.status === 200 });
 
-  const token = login.json("access_token");
+  const me = http.get(`${url}/auth/me`, { jar, tags: { name: "me" } });
+  check(me, { "me 200": (r) => r.status === 200 });
+
   const dash = http.get(`${url}/dashboard`, {
-    headers: jsonHeaders(token),
+    jar,
     tags: { name: "dashboard" },
   });
   check(dash, { "dashboard 200": (r) => r.status === 200 });

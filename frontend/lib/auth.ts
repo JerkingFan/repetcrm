@@ -1,14 +1,12 @@
-const TOKEN_KEY = "repetcrm_token";
+/** Сессия в HttpOnly cookies (access + refresh). localStorage не используется. */
 
-export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+export function hasLegacyToken(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean(window.localStorage.getItem("repetcrm_token"));
 }
 
-export function setToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token);
-}
-
-export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
+/** Удалить устаревший токен из localStorage после миграции на cookies. */
+export function clearLegacyToken(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem("repetcrm_token");
 }

@@ -10,6 +10,7 @@ _ENV_FILE_KEYS = {
     "SECRET_KEY": "secret_key",
     "DATABASE_URL": "database_url",
     "CORS_ORIGINS": "cors_origins",
+    "CORS_ALLOW_LOCALHOST_REGEX": "cors_allow_localhost_regex",
     "HOMEWORK_AI_PROVIDER": "homework_ai_provider",
     "OPENROUTER_API_KEY": "openrouter_api_key",
     "OPENROUTER_MODEL": "openrouter_model",
@@ -42,6 +43,42 @@ _ENV_FILE_KEYS = {
     "SQLITE_BACKUP_ON_STARTUP": "sqlite_backup_on_startup",
     "SQLITE_BACKUP_DIR": "sqlite_backup_dir",
     "SQLITE_BACKUP_KEEP": "sqlite_backup_keep",
+    "SQLITE_MIGRATION_COMPLETED": "sqlite_migration_completed",
+    "PRODUCTION_MIN_USERS": "production_min_users",
+    "LOG_FORMAT": "log_format",
+    "METRICS_ENABLED": "metrics_enabled",
+    "METRICS_TOKEN": "metrics_token",
+    "API_RATE_LIMIT_ENABLED": "api_rate_limit_enabled",
+    "API_RATE_LIMIT_MAX": "api_rate_limit_max",
+    "API_RATE_LIMIT_WINDOW_SEC": "api_rate_limit_window_sec",
+    "LATEX_CIRCUIT_FAILURES": "latex_circuit_failures",
+    "LATEX_CIRCUIT_RESET_SEC": "latex_circuit_reset_sec",
+    "OPENROUTER_CIRCUIT_FAILURES": "openrouter_circuit_failures",
+    "OPENROUTER_CIRCUIT_RESET_SEC": "openrouter_circuit_reset_sec",
+    "SENTRY_DSN": "sentry_dsn",
+    "SENTRY_RELEASE": "sentry_release",
+    "SENTRY_TRACES_SAMPLE_RATE": "sentry_traces_sample_rate",
+    "BOARD_SNAPSHOT_KEEP": "board_snapshot_keep",
+    "FRONTEND_PUBLIC_URL": "frontend_public_url",
+    "SMTP_HOST": "smtp_host",
+    "SMTP_PORT": "smtp_port",
+    "SMTP_USER": "smtp_user",
+    "SMTP_PASSWORD": "smtp_password",
+    "SMTP_FROM": "smtp_from",
+    "SMTP_USE_TLS": "smtp_use_tls",
+    "TELEGRAM_BOT_TOKEN": "telegram_bot_token",
+    "PASSWORD_RESET_EXPIRE_HOURS": "password_reset_expire_hours",
+    "PORTAL_SESSION_EXPIRE_DAYS": "portal_session_expire_days",
+    "HOMEWORK_SUBMISSION_MAX_BYTES": "homework_submission_max_bytes",
+    "REMINDER_CRON_HOUR": "reminder_cron_hour",
+    "PAYMENT_WEBHOOK_SECRET": "payment_webhook_secret",
+    "MEDIA_DIR": "media_dir",
+    "OPENROUTER_SITE_URL": "openrouter_site_url",
+    "OPENROUTER_APP_NAME": "openrouter_app_name",
+    "LATEX_ONLINE_URL": "latex_online_url",
+    "AI_ALLOW_TEMPLATE_FALLBACK": "ai_allow_template_fallback",
+    "REDIS_PASSWORD": "redis_password",
+    "APP_ENV": "app_env",
 }
 
 
@@ -52,11 +89,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    app_env: str = "development"
     secret_key: str = "repetcrm-dev-secret-change-in-production"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
     refresh_cookie_name: str = "repetcrm_refresh"
+    access_cookie_name: str = "repetcrm_access"
     cookie_secure: bool = False
     database_url: str = "sqlite:///./data/repetcrm.db"
     redis_url: str = ""
@@ -107,6 +146,40 @@ class Settings(BaseSettings):
     sqlite_backup_on_startup: bool = False
     sqlite_backup_dir: str = "./data/backups"
     sqlite_backup_keep: int = 14
+    sqlite_migration_completed: bool = False
+    production_min_users: int = 0
+    log_format: str = "auto"  # auto | json | text
+    metrics_enabled: bool = True
+    metrics_token: str = ""
+    api_rate_limit_enabled: bool = True
+    api_rate_limit_max: int = 120
+    api_rate_limit_window_sec: int = 60
+    latex_circuit_failures: int = 3
+    latex_circuit_reset_sec: int = 60
+    openrouter_circuit_failures: int = 3
+    openrouter_circuit_reset_sec: int = 60
+    sentry_dsn: str = ""
+    sentry_release: str = ""
+    sentry_traces_sample_rate: float = 0.1
+    board_snapshot_keep: int = 20
+    frontend_public_url: str = "http://localhost:3000"
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_use_tls: bool = True
+    telegram_bot_token: str = ""
+    password_reset_expire_hours: int = 1
+    portal_session_expire_days: int = 30
+    homework_submission_max_bytes: int = 15 * 1024 * 1024
+    reminder_cron_hour: int = 18  # UTC hour for daily reminders
+    payment_webhook_secret: str = ""
+    redis_password: str = ""
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env.strip().lower() == "production"
 
     @property
     def ollama_generate_url(self) -> str:
@@ -143,6 +216,11 @@ def get_settings() -> Settings:
             "ai_use_ollama",
             "latex_online_compile",
             "cookie_secure",
+            "sqlite_migration_completed",
+            "metrics_enabled",
+            "cors_allow_localhost_regex",
+            "api_rate_limit_enabled",
+            "smtp_use_tls",
         ):
             updates[field] = v.lower() in ("1", "true", "yes", "on")
         elif field in (
@@ -165,12 +243,28 @@ def get_settings() -> Settings:
             "ai_global_concurrency",
             "openrouter_max_retries",
             "sqlite_backup_keep",
+            "production_min_users",
+            "api_rate_limit_max",
+            "api_rate_limit_window_sec",
+            "latex_circuit_failures",
+            "latex_circuit_reset_sec",
+            "openrouter_circuit_failures",
+            "openrouter_circuit_reset_sec",
+            "board_snapshot_keep",
+            "sentry_traces_sample_rate",
+            "smtp_port",
+            "password_reset_expire_hours",
+            "portal_session_expire_days",
+            "homework_submission_max_bytes",
+            "reminder_cron_hour",
         ):
             updates[field] = float(v) if "." in v else int(v)
         elif field in ("auth_login_fail_delay_sec", "board_persist_debounce_sec"):
             updates[field] = float(v)
         elif field == "sqlite_backup_on_startup":
             updates[field] = v.lower() in ("1", "true", "yes", "on")
+        elif field == "app_env":
+            updates[field] = v.strip().lower()
         else:
             updates[field] = v
     if updates:

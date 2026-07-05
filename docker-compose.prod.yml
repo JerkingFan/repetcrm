@@ -25,9 +25,16 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --requirepass
+      - ${REDIS_PASSWORD:-changeme}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -43,8 +50,9 @@ services:
       - .env.production
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/repetcrm.db}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_URL: ${REDIS_URL:-redis://:changeme@redis:6379/0}
       MEDIA_DIR: /app/media
+      APP_ENV: ${APP_ENV:-production}
     volumes:
       - backend_data:/app/data
       - backend_media:/app/media
@@ -68,8 +76,9 @@ services:
       - .env.production
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/repetcrm.db}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_URL: ${REDIS_URL:-redis://:changeme@redis:6379/0}
       MEDIA_DIR: /app/media
+      APP_ENV: ${APP_ENV:-production}
     volumes:
       - backend_data:/app/data
       - backend_media:/app/media

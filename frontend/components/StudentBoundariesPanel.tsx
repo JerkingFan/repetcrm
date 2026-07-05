@@ -18,11 +18,10 @@ import { toast } from "@/lib/toast";
 
 type Props = {
   studentId: number;
-  token: string;
   onApplied?: () => void;
 };
 
-export default function StudentBoundariesPanel({ studentId, token, onApplied }: Props) {
+export default function StudentBoundariesPanel({ studentId, onApplied }: Props) {
   const [data, setData] = useState<StudentBoundaries | null>(null);
   const [loading, setLoading] = useState(true);
   const [copying, setCopying] = useState(false);
@@ -31,13 +30,13 @@ export default function StudentBoundariesPanel({ studentId, token, onApplied }: 
   const load = useCallback(() => {
     setLoading(true);
     api.students
-      .getBoundaries(token, studentId)
+      .getBoundaries(studentId)
       .then(setData)
       .catch((e) => {
         if (e instanceof ApiError) toast(e.message, "error");
       })
       .finally(() => setLoading(false));
-  }, [studentId, token]);
+  }, [studentId]);
 
   useEffect(() => {
     load();
@@ -55,7 +54,7 @@ export default function StudentBoundariesPanel({ studentId, token, onApplied }: 
     try {
       let text = data.notification_message;
       if (!text) {
-        const msg = await api.students.getBoundaryMessage(token, studentId, suggestedMode);
+        const msg = await api.students.getBoundaryMessage(studentId, suggestedMode);
         text = msg.message;
       }
       if (!text) {
@@ -75,7 +74,7 @@ export default function StudentBoundariesPanel({ studentId, token, onApplied }: 
     if (!data) return;
     setApplying(true);
     try {
-      await api.students.applyBoundaries(token, studentId, {
+      await api.students.applyBoundaries(studentId, {
         mode: data.suggested_mode,
         reason: data.suggested_reason,
       });

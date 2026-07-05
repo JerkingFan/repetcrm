@@ -1,15 +1,19 @@
+import os
+
 from fastapi.responses import JSONResponse
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import User, Homework, Lesson
+from app.models import Homework, HomeworkSubmission, Lesson, User
 from pydantic import BaseModel
 
-from app.schemas import HomeworkUpdate, HomeworkOut
+from app.schemas import HomeworkUpdate, HomeworkOut, HomeworkSubmissionOut, HomeworkSubmissionReviewIn
+from app.services.homework_submission_review import review_submission
 from app.services.homework_output import homework_content_to_html
 from app.services.latex_convert import (
     homework_html_to_python_script,
@@ -213,3 +217,74 @@ async def download_pdf(homework_id: int, user: User = Depends(get_current_user),
         filename=filename,
         headers={"Access-Control-Expose-Headers": "Content-Disposition"},
     )
+
+
+@router.get("/{homework_id}/submissions", response_model=list[HomeworkSubmissionOut])
+def list_homework_submissions(
+    homework_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    hw = get_homework_or_404(homework_id, user, db)
+    rows = (
+        db.query(HomeworkSubmission)
+        .filter(HomeworkSubmission.homework_id == hw.id)
+        .order_by(HomeworkSubmission.submitted_at.desc())
+        .all()
+    )
+    return rows
+
+
+@router.post("/{homework_id}/submissions/{submission_id}/review", response_model=HomeworkSubmissionOut)
+def review_homework_submission(
+    homework_id: int,
+    submission_id: int,
+    data: HomeworkSubmissionReviewIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    hw = get_homework_or_404(homework_id, user, db)
+    sub = (
+        db.query(HomeworkSubmission)
+        .filter(
+            HomeworkSubmission.id == submission_id,
+            HomeworkSubmission.homework_id == hw.id,
+        )
+        .first()
+    )
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    review_submission(
+        db,
+        submission=sub,
+        homework=hw,
+        tutor=user,
+        status=data.status,
+        tutor_comment=data.tutor_comment or "",
+    )
+    db.commit()
+    db.refresh(sub)
+    return sub
+
+
+@router.get("/{homework_id}/submissions/{submission_id}/file")
+def download_homework_submission(
+    homework_id: int,
+    submission_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    hw = get_homework_or_404(homework_id, user, db)
+    sub = (
+        db.query(HomeworkSubmission)
+        .filter(
+            HomeworkSubmission.id == submission_id,
+            HomeworkSubmission.homework_id == hw.id,
+        )
+        .first()
+    )
+    if not sub:
+        raise HTTPException(status_code=404, detail="Not found")
+    cfg = get_settings()
+    full = os.path.join(cfg.media_dir, sub.file_path)
+    if not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="File missing")
+    return FileResponse(full, media_type=sub.mime_type, filename=sub.original_filename)

@@ -25,10 +25,42 @@ def create_access_token(user_id: int) -> str:
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
+def create_portal_session_token(student_id: int) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.portal_session_expire_days)
+    payload = {"sub": str(student_id), "exp": expire, "type": "portal"}
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def create_parent_portal_session_token(student_id: int) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.portal_session_expire_days)
+    payload = {"sub": str(student_id), "exp": expire, "type": "parent_portal"}
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
 def decode_token(token: str) -> dict | None:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         if payload.get("type") and payload.get("type") != "access":
+            return None
+        return payload
+    except JWTError:
+        return None
+
+
+def decode_portal_token(token: str) -> dict | None:
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        if payload.get("type") != "portal":
+            return None
+        return payload
+    except JWTError:
+        return None
+
+
+def decode_parent_portal_token(token: str) -> dict | None:
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        if payload.get("type") != "parent_portal":
             return None
         return payload
     except JWTError:

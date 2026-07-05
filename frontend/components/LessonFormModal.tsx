@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { XMarkIcon, TrashIcon } from "@heroicons/react/24/outline";
-import { getToken } from "@/lib/auth";
 import { api, ApiError, LessonWithBoundarySync, BoundarySyncOut } from "@/lib/api";
 import Alert from "@/components/Alert";
 import { formatDayLabel } from "@/lib/calendar";
@@ -67,10 +66,8 @@ export default function LessonFormModal({
 
   useEffect(() => {
     if (mode === "create") {
-      const token = getToken();
-      if (!token) return;
       api.students
-        .listAll(token)
+        .listAll()
         .then((list) => {
           setStudents(list);
           if (list.length) setForm((f) => ({ ...f, student_id: String(list[0].id) }));
@@ -81,14 +78,12 @@ export default function LessonFormModal({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = getToken();
-    if (!token) return;
     setSaving(true);
     setError("");
     setBoundarySync(null);
     try {
       if (mode === "create") {
-        const created = await api.lessons.create<{ id: number }>(token, {
+        const created = await api.lessons.create({
           student_id: Number(form.student_id),
           lesson_date: form.lesson_date,
           lesson_time: form.lesson_time,
@@ -98,9 +93,9 @@ export default function LessonFormModal({
           notes: form.notes,
         });
         if (onSaved) onSaved();
-        else router.push(`/lessons/${created.id}`);
+        else router.push(`/lessons/${created.lesson.id}`);
       } else if (lesson?.id) {
-        const res = await api.lessons.update<LessonWithBoundarySync<unknown>>(token, lesson.id, {
+        const res = await api.lessons.update<LessonWithBoundarySync<unknown>>(lesson.id, {
           lesson_date: form.lesson_date,
           lesson_time: form.lesson_time,
           duration_minutes: Number(form.duration_minutes),
@@ -138,11 +133,9 @@ export default function LessonFormModal({
   const remove = async () => {
     if (!lesson?.id) return;
     if (!confirm("Удалить занятие? Чек-лист и домашка тоже будут удалены.")) return;
-    const token = getToken();
-    if (!token) return;
     setDeleting(true);
     try {
-      await api.lessons.delete(token, lesson.id);
+      await api.lessons.delete(lesson.id);
       onSaved?.();
       onClose();
       router.push("/lessons");

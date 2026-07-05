@@ -15,10 +15,39 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal, get_db
 from app.dependencies import get_current_user
-from app.models import Board, User
+from app.models import Board, User, BoardSnapshot
+from app.schemas import BoardSnapshotOut
 
 
 router = APIRouter(prefix="/boards", tags=["boards"])
+
+
+_WRITE_OPS = frozenset(
+    {
+        "set_state",
+        "clear",
+        "stroke_begin",
+        "stroke_point",
+        "stroke_simplify",
+        "text_add",
+        "image_add",
+        "image_move",
+        "image_update",
+        "erase",
+    }
+)
+
+
+def _is_persisted_write_op(op: dict) -> bool:
+    return op.get("op") in _WRITE_OPS
+
+
+def _require_share_write(b: Board) -> None:
+    if not b.share_writable:
+        raise HTTPException(
+            status_code=403,
+            detail="Guest write is disabled for this board. Owner can enable collaboration.",
+        )
 
 
 def _new_share_token() -> str:
@@ -45,6 +74,7 @@ def _board_to_dict(b: Board) -> dict:
         "owner_id": b.owner_id,
         "title": b.title,
         "share_token": b.share_token,
+        "share_writable": bool(b.share_writable),
         "state_json": state,
         "created_at": b.created_at.isoformat() if isinstance(b.created_at, datetime) else str(b.created_at),
         "updated_at": b.updated_at.isoformat() if isinstance(b.updated_at, datetime) else str(b.updated_at),
@@ -91,7 +121,12 @@ def create_board(payload: dict[str, Any] | None = None, user: User = Depends(get
     title = ""
     if payload and isinstance(payload.get("title"), str):
         title = payload["title"].strip()
-    b = Board(owner_id=user.id, title=title or "Виртуальная доска", share_token=_new_share_token())
+    b = Board(
+        owner_id=user.id,
+        title=title or "Виртуальная доска",
+        share_token=_new_share_token(),
+        share_writable=False,
+    )
     db.add(b)
     db.commit()
     db.refresh(b)
@@ -101,6 +136,45 @@ def create_board(payload: dict[str, Any] | None = None, user: User = Depends(get
 @router.get("/{board_id}")
 def get_board(board_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     b = _get_board_for_owner(db, board_id, user.id)
+    return _board_to_dict(b)
+
+
+@router.get("/{board_id}/snapshots", response_model=list[BoardSnapshotOut])
+def list_board_snapshots(
+    board_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_board_for_owner(db, board_id, user.id)
+    rows = (
+        db.query(BoardSnapshot)
+        .filter(BoardSnapshot.board_id == board_id)
+        .order_by(BoardSnapshot.created_at.desc(), BoardSnapshot.id.desc())
+        .limit(50)
+        .all()
+    )
+    return [BoardSnapshotOut(id=r.id, created_at=r.created_at) for r in rows]
+
+
+@router.post("/{board_id}/snapshots/{snapshot_id}/restore")
+def restore_board_snapshot(
+    board_id: int,
+    snapshot_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    b = _get_board_for_owner(db, board_id, user.id)
+    snap = (
+        db.query(BoardSnapshot)
+        .filter(BoardSnapshot.id == snapshot_id, BoardSnapshot.board_id == board_id)
+        .first()
+    )
+    if not snap:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    b.state_json = snap.state_json
+    b.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(b)
     return _board_to_dict(b)
 
 
@@ -115,6 +189,8 @@ def update_board(board_id: int, payload: dict[str, Any], user: User = Depends(ge
     b = _get_board_for_owner(db, board_id, user.id)
     if isinstance(payload.get("title"), str):
         b.title = payload["title"].strip() or b.title
+    if "share_writable" in payload and isinstance(payload.get("share_writable"), bool):
+        b.share_writable = payload["share_writable"]
     if payload.get("state_json") is not None:
         state = payload["state_json"]
         if isinstance(state, dict):
@@ -132,6 +208,7 @@ def update_board(board_id: int, payload: dict[str, Any], user: User = Depends(ge
 @router.put("/{board_id}/public")
 def update_board_public(board_id: int, token: str, payload: dict[str, Any], db: Session = Depends(get_db)):
     b = _allow_board_access(db, board_id, share_token=token)
+    _require_share_write(b)
     if payload.get("state_json") is not None:
         state = payload["state_json"]
         if isinstance(state, dict):
@@ -157,6 +234,7 @@ async def upload_board_asset(
     if not token:
         raise HTTPException(status_code=401, detail="Missing token")
     b = _allow_board_access(db, board_id, share_token=token)
+    _require_share_write(b)
 
     media_root = os.environ.get("MEDIA_DIR") or "./media"
     board_dir = os.path.join(media_root, "boards", str(b.id))
@@ -312,6 +390,9 @@ class _BoardRoomStore:
                 return
             b.state_json = json.dumps(state, ensure_ascii=False)
             b.updated_at = datetime.utcnow()
+            from app.services.board_snapshots import save_board_snapshot
+
+            save_board_snapshot(db, board_id, b.state_json)
             db.commit()
         finally:
             db.close()
@@ -612,12 +693,18 @@ async def board_ws(ws: WebSocket, board_id: int):
     """
     token = ws.query_params.get("token")
     auth = ws.query_params.get("auth")
+    if not auth:
+        from app.config import get_settings
+
+        auth = ws.cookies.get(get_settings().access_cookie_name)
 
     db = SessionLocal()
     try:
         b: Board | None = None
+        guest_via_token = False
         if token:
             b = db.query(Board).filter(Board.id == board_id, Board.share_token == token).first()
+            guest_via_token = b is not None
         elif auth:
             # validate JWT by reusing decode logic via dependencies module
             from app.auth import decode_token
@@ -644,6 +731,15 @@ async def board_ws(ws: WebSocket, board_id: int):
                 continue
             if msg.get("type") == "op" and isinstance(msg.get("op"), dict):
                 op = msg["op"]
+                if guest_via_token and not b.share_writable and _is_persisted_write_op(op):
+                    await ws.send_json(
+                        {
+                            "type": "error",
+                            "code": "read_only",
+                            "detail": "Guest write is disabled for this board",
+                        }
+                    )
+                    continue
                 await _manager.publish_op(board_id, op, exclude=ws)
             elif msg.get("type") == "ping":
                 await ws.send_json({"type": "pong"})

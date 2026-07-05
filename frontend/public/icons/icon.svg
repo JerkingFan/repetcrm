@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="RepetCRM">
+  <rect width="512" height="512" rx="96" fill="#1E3A8A"/>
+  <text x="256" y="300" text-anchor="middle" font-family="system-ui,Segoe UI,sans-serif" font-size="220" font-weight="700" fill="#ffffff">R</text>
+  <circle cx="380" cy="140" r="36" fill="#22C55E"/>
+</svg>

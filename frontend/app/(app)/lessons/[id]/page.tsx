@@ -12,14 +12,15 @@ import {
 } from "@heroicons/react/24/outline";
 import LessonFormModal, { LessonFormData } from "@/components/LessonFormModal";
 import { formatLessonTime } from "@/lib/calendar";
-import { getToken } from "@/lib/auth";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, authFetch } from "@/lib/api";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import Alert from "@/components/Alert";
 import LessonHomeworkForm from "@/components/LessonHomeworkForm";
 import { defaultHomeworkPrefs, HomeworkPrefs } from "@/lib/homeworkPrefs";
 import { formatMoney } from "@/lib/currency";
 import { pollJobUntilDone, JOB_POLL_INTERVAL_MS, JOB_TIMEOUT_MS } from "@/lib/jobPoll";
+import HomeworkTemplatesPanel from "@/components/HomeworkTemplatesPanel";
+import TrialFollowupBanner from "@/components/TrialFollowupBanner";
 
 type ChecklistRow = {
   topic: string;
@@ -76,11 +77,26 @@ export default function LessonDetailPage() {
   const [isConducted, setIsConducted] = useState(false);
   const [prefs, setPrefs] = useState<HomeworkPrefs>(defaultHomeworkPrefs());
   const [showOptional, setShowOptional] = useState(true);
+  const [submissions, setSubmissions] = useState<
+    Awaited<ReturnType<typeof api.homework.submissions>>
+  >([]);
+  const [reviewComments, setReviewComments] = useState<Record<number, string>>({});
+  const [reviewingId, setReviewingId] = useState<number | null>(null);
+  const [togglingPaid, setTogglingPaid] = useState(false);
+  const [trialFollowup, setTrialFollowup] = useState("");
+
+  const submissionStatusLabel: Record<string, string> = {
+    submitted: "На проверке",
+    reviewed: "Проверено",
+    needs_revision: "Нужна доработка",
+  };
+
+  const loadSubmissions = useCallback((hwId: number) => {
+    api.homework.submissions(hwId).then(setSubmissions).catch(() => setSubmissions([]));
+  }, []);
 
   const load = useCallback(() => {
-    const token = getToken();
-    if (!token) return;
-    api.lessons.get<Lesson>(token, lessonId).then((l) => {
+    api.lessons.get<Lesson>(lessonId).then((l) => {
       setLesson(l);
       if (l.checklist_items?.length) {
         setRows(
@@ -97,16 +113,19 @@ export default function LessonDetailPage() {
       if (l.homework) {
         setHomeworkHtml(l.homework.homework_text);
         setHomeworkId(l.homework.id);
+        loadSubmissions(l.homework.id);
         api.homework
-          .previewHtml(token, l.homework.id)
+          .previewHtml(l.homework.id)
           .then((p) => setHomeworkDisplayHtml(p.html))
           .catch(() => setHomeworkDisplayHtml(l.homework!.homework_text));
       } else {
+        setHomeworkId(null);
+        setSubmissions([]);
         setHomeworkDisplayHtml("");
       }
       setLoading(false);
     });
-  }, [lessonId]);
+  }, [lessonId, loadSubmissions]);
 
   useEffect(() => load(), [load]);
 
@@ -123,8 +142,6 @@ export default function LessonDetailPage() {
 
   useEffect(() => {
     if (!jobId || jobStatus === "done" || jobStatus === "error") return;
-    const token = getToken();
-    if (!token) return;
     const key = `repetcrm:hw_job:${lessonId}`;
 
     let cancelled = false;
@@ -139,7 +156,7 @@ export default function LessonDetailPage() {
         return;
       }
       try {
-        const j = await api.lessons.getJob(token, jobId);
+        const j = await api.lessons.getJob(jobId);
         if (cancelled) return;
         setJobStatus(j.status);
         if (j.status === "done") {
@@ -198,8 +215,6 @@ export default function LessonDetailPage() {
   }, [prefs.focus_aspect, prefs.difficulty_level, prefs.understanding_global]);
 
   const saveLessonReport = async (markConducted = isConducted) => {
-    const token = getToken();
-    if (!token) return false;
     const valid = rows.filter((r) => r.topic.trim());
     if (!valid.length) {
       setError("Укажите хотя бы одну тему (вопрос 1)");
@@ -212,7 +227,7 @@ export default function LessonDetailPage() {
     setSaving(true);
     setError("");
     try {
-      await api.lessons.saveLessonReport(token, lessonId, {
+      await api.lessons.saveLessonReport(lessonId, {
         items: valid.map((r) => ({
           topic: r.topic.trim(),
           work_type: r.work_type,
@@ -224,6 +239,12 @@ export default function LessonDetailPage() {
       });
       setIsConducted(markConducted);
       setSuccess(markConducted ? "Занятие сохранено, можно генерировать ДЗ" : "Настройки сохранены");
+      if (markConducted && lesson?.student_id) {
+        api.students
+          .trialFollowup(lesson.student_id)
+          .then((f) => setTrialFollowup(f.show ? f.message : ""))
+          .catch(() => setTrialFollowup(""));
+      }
       load();
       return true;
     } catch (e) {
@@ -235,8 +256,6 @@ export default function LessonDetailPage() {
   };
 
   const generate = async () => {
-    const token = getToken();
-    if (!token) return;
     setGenerating(true);
     setError("");
     setSuccess("");
@@ -251,7 +270,7 @@ export default function LessonDetailPage() {
         setGenerating(false);
         return;
       }
-      const started = await api.lessons.startHomeworkJob(token, lessonId);
+      const started = await api.lessons.startHomeworkJob(lessonId);
       const key = `repetcrm:hw_job:${lessonId}`;
       window.localStorage.setItem(key, started.job_id);
       setJobId(started.job_id);
@@ -267,11 +286,9 @@ export default function LessonDetailPage() {
 
   const saveHomework = async () => {
     if (!homeworkId) return;
-    const token = getToken();
-    if (!token) return;
     setSaving(true);
     try {
-      await api.homework.update(token, homeworkId, homeworkHtml);
+      await api.homework.update(homeworkId, homeworkHtml);
       setEditMode(false);
       setSuccess("ДЗ сохранено");
     } catch (e) {
@@ -283,10 +300,7 @@ export default function LessonDetailPage() {
 
   const downloadPython = async () => {
     if (!homeworkId) return;
-    const token = getToken();
-    const res = await fetch(api.homework.pythonScriptUrl(homeworkId), {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    const res = await authFetch(api.homework.pythonScriptUrl(homeworkId));
     if (!res.ok) {
       setError("Не удалось скачать Python-скрипт");
       return;
@@ -301,10 +315,7 @@ export default function LessonDetailPage() {
 
   const downloadLatex = async () => {
     if (!homeworkId) return;
-    const token = getToken();
-    const res = await fetch(api.homework.latexUrl(homeworkId), {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    const res = await authFetch(api.homework.latexUrl(homeworkId));
     if (!res.ok) {
       setError("Не удалось скачать .tex");
       return;
@@ -319,8 +330,6 @@ export default function LessonDetailPage() {
 
   const downloadPdf = async () => {
     if (!homeworkId || pdfLoading) return;
-    const token = getToken();
-    if (!token) return;
     setError("");
     setPdfLoading(true);
     setPdfStatus("Подготавливаем домашнее задание…");
@@ -337,17 +346,13 @@ export default function LessonDetailPage() {
     }, 9000);
 
     try {
-      const tryFetchPdf = async () => {
-        return await fetch(api.homework.pdfUrl(homeworkId), {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      };
+      const tryFetchPdf = async () => authFetch(api.homework.pdfUrl(homeworkId));
 
       let res = await tryFetchPdf();
       if (res.status === 202) {
         const started = (await res.json()) as { job_id: string };
         setPdfStatus("Собираем PDF в фоне…");
-        const polled = await pollJobUntilDone(token, started.job_id, (status) => {
+        const polled = await pollJobUntilDone(started.job_id, (status) => {
           if (status === "running") setPdfStatus("Компилируем формулы (LaTeX)…");
         });
         if (!polled.ok) {
@@ -389,6 +394,57 @@ export default function LessonDetailPage() {
     }
   };
 
+  const togglePaid = async () => {
+    if (!lesson) return;
+    setTogglingPaid(true);
+    setError("");
+    try {
+      await api.lessons.togglePaid(lessonId, !lesson.is_paid);
+      setSuccess(lesson.is_paid ? "Отмечено как не оплачено" : "Оплата отмечена");
+      load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Ошибка");
+    } finally {
+      setTogglingPaid(false);
+    }
+  };
+
+  const downloadSubmission = async (submissionId: number, filename: string) => {
+    if (!homeworkId) return;
+    const res = await authFetch(api.homework.submissionFileUrl(homeworkId, submissionId));
+    if (!res.ok) {
+      setError("Не удалось скачать файл");
+      return;
+    }
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const reviewSubmission = async (
+    submissionId: number,
+    status: "reviewed" | "needs_revision"
+  ) => {
+    if (!homeworkId) return;
+    setReviewingId(submissionId);
+    setError("");
+    try {
+      await api.homework.reviewSubmission(homeworkId, submissionId, {
+        status,
+        tutor_comment: reviewComments[submissionId] || "",
+      });
+      setSuccess(status === "reviewed" ? "Отмечено как проверено" : "Отправлено на доработку");
+      loadSubmissions(homeworkId);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Ошибка проверки");
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
   if (loading) return <LoadingSpinner label="Загрузка урока..." />;
 
   const editData: LessonFormData | null = lesson
@@ -423,7 +479,7 @@ export default function LessonDetailPage() {
             {" · "}
             {lesson?.duration_minutes} мин
           </p>
-          <p className="mt-2 text-sm">
+          <p className="mt-2 text-sm flex flex-wrap items-center gap-2">
             {lesson?.is_paid ? (
               <span className="text-brand-green font-medium">
                 Оплачено · {formatMoney(lesson.payment_amount)}
@@ -433,6 +489,18 @@ export default function LessonDetailPage() {
                 Не оплачено · {lesson?.payment_amount != null ? formatMoney(lesson.payment_amount) : "—"}
               </span>
             )}
+            <button
+              type="button"
+              onClick={togglePaid}
+              disabled={togglingPaid}
+              className={`px-3 py-1 rounded-lg text-xs font-medium border ${
+                lesson?.is_paid
+                  ? "border-slate-200 text-slate-600 hover:bg-slate-50"
+                  : "border-brand-green text-brand-green hover:bg-emerald-50"
+              } disabled:opacity-50`}
+            >
+              {togglingPaid ? "…" : lesson?.is_paid ? "Снять оплату" : "Отметить оплату"}
+            </button>
           </p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2">
@@ -468,6 +536,11 @@ export default function LessonDetailPage() {
 
       {error && <div className="mt-4"><Alert message={error} onClose={() => setError("")} /></div>}
       {success && <div className="mt-4"><Alert type="success" message={success} onClose={() => setSuccess("")} /></div>}
+      {trialFollowup && (
+        <div className="mt-4">
+          <TrialFollowupBanner message={trialFollowup} />
+        </div>
+      )}
 
       {showEdit && editData && (
         <LessonFormModal
@@ -621,6 +694,14 @@ export default function LessonDetailPage() {
             {jobStatus === "queued" ? "В очереди…" : "Генерируем…"} {jobHint}
           </p>
         )}
+
+        <HomeworkTemplatesPanel
+          lessonId={lessonId}
+          hasHomework={!!homeworkId}
+          onApplied={load}
+          onPrefsLoaded={setPrefs}
+          onRowsLoaded={(r) => setRows(r.length ? r : [emptyRow()])}
+        />
         </>
         )}
       </section>
@@ -728,8 +809,118 @@ export default function LessonDetailPage() {
               dangerouslySetInnerHTML={{ __html: homeworkDisplayHtml || homeworkHtml }}
             />
           )}
+          {submissions.length > 0 && (
+            <div className="mt-6 pt-6 border-t">
+              <h3 className="font-medium text-slate-800 mb-3">Ответы ученика</h3>
+              <ul className="space-y-2">
+                {submissions.map((s) => (
+                  <li
+                    key={s.id}
+                    className="p-3 rounded-xl bg-slate-50 text-sm space-y-3"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{s.original_filename}</p>
+                        <p className="text-xs text-slate-500">
+                          {new Date(s.submitted_at).toLocaleString("ru-RU")}
+                          {s.comment ? ` · ${s.comment}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-xs font-medium px-2 py-1 rounded-lg ${
+                            s.status === "reviewed"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : s.status === "needs_revision"
+                                ? "bg-amber-100 text-amber-800"
+                                : "bg-slate-200 text-slate-700"
+                          }`}
+                        >
+                          {submissionStatusLabel[s.status] || s.status}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => downloadSubmission(s.id, s.original_filename)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm hover:bg-white"
+                        >
+                          <ArrowDownTrayIcon className="w-4 h-4" />
+                          Скачать
+                        </button>
+                      </div>
+                    </div>
+                    {s.tutor_comment && (
+                      <p className="text-xs text-slate-600 bg-white rounded-lg p-2 border">
+                        Комментарий: {s.tutor_comment}
+                      </p>
+                    )}
+                    {s.status === "submitted" && (
+                      <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                        <input
+                          type="text"
+                          placeholder="Комментарий родителю/ученику (необязательно)"
+                          value={reviewComments[s.id] || ""}
+                          onChange={(e) =>
+                            setReviewComments((prev) => ({ ...prev, [s.id]: e.target.value }))
+                          }
+                          className="flex-1 px-3 py-2 rounded-lg border text-sm"
+                        />
+                        <button
+                          type="button"
+                          disabled={reviewingId === s.id}
+                          onClick={() => reviewSubmission(s.id, "reviewed")}
+                          className="px-3 py-2 rounded-lg bg-brand-green text-white text-sm font-medium"
+                        >
+                          Проверено
+                        </button>
+                        <button
+                          type="button"
+                          disabled={reviewingId === s.id}
+                          onClick={() => reviewSubmission(s.id, "needs_revision")}
+                          className="px-3 py-2 rounded-lg border text-sm font-medium"
+                        >
+                          На доработку
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
       )}
+
+      {/* Mobile sticky actions */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 lg:hidden border-t bg-white/95 backdrop-blur px-4 py-3 flex gap-2 safe-area-pb">
+        {lesson?.board_id ? (
+          <Link
+            href={`/boards/${lesson.board_id}?lesson=${lessonId}`}
+            className="flex-1 text-center py-2.5 rounded-xl bg-slate-900 text-white text-sm font-medium"
+          >
+            Доска
+          </Link>
+        ) : null}
+        <button
+          type="button"
+          onClick={togglePaid}
+          disabled={togglingPaid}
+          className={`flex-1 py-2.5 rounded-xl text-sm font-medium border ${
+            lesson?.is_paid
+              ? "border-slate-200 text-slate-700"
+              : "border-brand-green bg-brand-green text-white"
+          }`}
+        >
+          {lesson?.is_paid ? "Оплачено ✓" : "Оплату ✓"}
+        </button>
+        <button
+          type="button"
+          onClick={() => document.getElementById("after-lesson")?.scrollIntoView({ behavior: "smooth" })}
+          className="flex-1 py-2.5 rounded-xl bg-brand-blue text-white text-sm font-medium"
+        >
+          ДЗ
+        </button>
+      </div>
+      <div className="h-20 lg:hidden" aria-hidden />
     </div>
   );
 }

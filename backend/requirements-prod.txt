@@ -16,3 +16,6 @@ matplotlib>=3.8.0
 redis>=5.0.0
 arq>=0.26.1
 psycopg2-binary>=2.9.9
+alembic>=1.14.0
+prometheus-client>=0.21.0
+sentry-sdk[fastapi]>=2.19.0

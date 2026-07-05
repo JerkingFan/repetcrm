@@ -93,7 +93,7 @@ def _prune_old_backups(backup_dir: Path, keep: int) -> None:
             logger.warning("Failed to remove old backup %s: %s", old, exc)
 
 
-def run_startup_db_checks() -> DbStartupReport:
+def run_startup_db_checks(*, skip_backup: bool = False) -> DbStartupReport:
     cfg = get_settings()
     url = cfg.database_url
     backend = "sqlite" if url.startswith("sqlite") else "postgresql" if "postgres" in url else "other"
@@ -120,7 +120,13 @@ def run_startup_db_checks() -> DbStartupReport:
             "If you migrated from SQLite, verify DATABASE_URL points to the correct DB."
         )
 
-    if cfg.sqlite_backup_on_startup and backend == "sqlite" and sqlite_path and sqlite_path.is_file():
+    if (
+        not skip_backup
+        and cfg.sqlite_backup_on_startup
+        and backend == "sqlite"
+        and sqlite_path
+        and sqlite_path.is_file()
+    ):
         backup_dir = Path(cfg.sqlite_backup_dir)
         if not backup_dir.is_absolute():
             backup_dir = (_BACKEND_DIR / backup_dir).resolve()

@@ -11,6 +11,7 @@ type Board = {
   id: number;
   title: string;
   share_token: string;
+  share_writable: boolean;
   state_json: BoardState;
 };
 
@@ -44,8 +45,20 @@ export default function PublicBoardPage() {
           <Alert message={error} onClose={() => setError("")} />
         </div>
       )}
+      {board && !board.share_writable && (
+        <p className="absolute top-4 left-4 right-4 z-20 text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-sm">
+          Режим просмотра: репетитор отключил рисование по ссылке.
+        </p>
+      )}
       {board && (
-        <Whiteboard boardId={board.id} shareToken={token} initialState={board.state_json} fullscreen />
+        <Whiteboard
+          boardId={board.id}
+          shareToken={token}
+          connectAsGuest
+          initialState={board.state_json}
+          readonly={!board.share_writable}
+          fullscreen
+        />
       )}
     </div>
   );

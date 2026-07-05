@@ -281,14 +281,14 @@ function applyBoardOp(prev: BoardState, op: Record<string, unknown>): BoardState
 export default function Whiteboard({
   boardId,
   shareToken,
-  authToken,
+  connectAsGuest = true,
   initialState,
   readonly = false,
   fullscreen = false,
 }: {
   boardId: number;
   shareToken?: string;
-  authToken?: string;
+  connectAsGuest?: boolean;
   initialState?: BoardState;
   readonly?: boolean;
   fullscreen?: boolean;
@@ -324,7 +324,10 @@ export default function Whiteboard({
   const erasingRef = useRef(false);
   const uploadInFlightRef = useRef(false);
 
-  const wsUrl = useMemo(() => api.boards.wsUrl(boardId, shareToken, authToken), [boardId, shareToken, authToken]);
+  const wsUrl = useMemo(
+    () => api.boards.wsUrl(boardId, connectAsGuest ? shareToken : undefined),
+    [boardId, shareToken, connectAsGuest]
+  );
 
   const wsRef = useRef<WebSocket | null>(null);
   const sendTimerRef = useRef<number | null>(null);
@@ -457,9 +460,9 @@ export default function Whiteboard({
       const usedUrls = new Set<string>();
       for (const im of s.images) {
         if (!im.url) continue;
-        const key = resolveBoardImageUrl(im.url);
+        const key = resolveBoardImageUrl(im.url, shareToken);
         usedUrls.add(key);
-        const cached = getBoardImage(imageCacheRef.current, im.url, bumpImageCache);
+        const cached = getBoardImage(imageCacheRef.current, im.url, bumpImageCache, shareToken);
         if (cached) {
           ctx.drawImage(cached, im.x, im.y, im.w, im.h);
         }
@@ -1345,12 +1348,12 @@ export default function Whiteboard({
             >
               <PhotoIcon className="w-5 h-5" />
             </button>
-            <div className="w-px h-7 bg-slate-200 shrink-0 hidden sm:block" />
+            <div className="w-px h-7 bg-slate-200 shrink-0" />
             <input
               type="color"
               value={color}
               onChange={(e) => setColor(e.target.value)}
-              className="w-9 h-9 p-0.5 border rounded-lg shrink-0 hidden sm:block"
+              className="w-9 h-9 p-0.5 border rounded-lg shrink-0"
               disabled={readonly}
               title="Цвет"
             />
@@ -1361,7 +1364,7 @@ export default function Whiteboard({
               value={width}
               onChange={(e) => setWidth(Number(e.target.value))}
               disabled={readonly}
-              className="w-16 sm:w-20 shrink-0 hidden sm:block"
+              className="w-14 sm:w-20 shrink-0"
               title="Толщина линии"
             />
             <input
@@ -1371,7 +1374,7 @@ export default function Whiteboard({
               value={textSize}
               onChange={(e) => setTextSize(Number(e.target.value))}
               disabled={readonly}
-              className="w-16 sm:w-20 shrink-0 hidden md:block"
+              className="w-14 sm:w-20 shrink-0 max-md:hidden"
               title="Размер текста"
             />
             <div className="w-px h-7 bg-slate-200 shrink-0" />

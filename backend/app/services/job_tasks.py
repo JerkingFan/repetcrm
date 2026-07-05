@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import Homework, Lesson
+from app.models import Homework, Lesson, User
 from app.services.homework_ai import generate_homework_ai
 from app.services.homework_prefs import apply_prefs_to_checklist, parse_homework_prefs
 from app.services import job_store
@@ -155,6 +155,14 @@ async def run_generate_homework(lesson_id: int, tutor_id: int) -> dict:
         db.commit()
         db.refresh(hw)
         invalidate_homework_pdf(hw.id)
+
+        tutor = db.query(User).filter(User.id == tutor_id).first()
+        if tutor:
+            from app.services.notifications import notify_homework_ready
+
+            notify_homework_ready(db, tutor, lesson_id=lesson_id, student_name=lesson.student.name)
+            db.commit()
+
         return {
             "homework_id": hw.id,
             "generation_source": source,

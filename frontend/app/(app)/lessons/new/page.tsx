@@ -3,11 +3,20 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getToken } from "@/lib/auth";
-import { CURRENCY_SYMBOL } from "@/lib/currency";
 import { api, ApiError } from "@/lib/api";
+import { CURRENCY_SYMBOL } from "@/lib/currency";
 import Alert from "@/components/Alert";
 import LoadingSpinner from "@/components/LoadingSpinner";
+
+const WEEKDAYS = [
+  "Понедельник",
+  "Вторник",
+  "Среда",
+  "Четверг",
+  "Пятница",
+  "Суббота",
+  "Воскресенье",
+];
 
 export default function NewLessonPage() {
   const router = useRouter();
@@ -22,24 +31,25 @@ export default function NewLessonPage() {
     payment_amount: 0,
     is_paid: false,
     notes: "",
+    recurring: false,
+    weeks_ahead: 8,
   });
 
   useEffect(() => {
-    const token = getToken();
-    if (!token) return;
-    api.students.listAll(token).then((s) => {
+    api.students.listAll().then((s) => {
       setStudents(s);
       if (s.length) setForm((f) => ({ ...f, student_id: String(s[0].id) }));
       setLoading(false);
     });
   }, []);
 
+  const weekdayFromDate = (iso: string) => new Date(iso + "T12:00:00").getDay();
+  const jsToIsoWeekday = (js: number) => (js + 6) % 7;
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = getToken();
-    if (!token) return;
     try {
-      const lesson = await api.lessons.create<{ id: number }>(token, {
+      const payload: Record<string, unknown> = {
         student_id: Number(form.student_id),
         lesson_date: form.lesson_date,
         lesson_time: form.lesson_time,
@@ -47,14 +57,23 @@ export default function NewLessonPage() {
         payment_amount: Number(form.payment_amount),
         is_paid: form.is_paid,
         notes: form.notes,
-      });
-      router.push(`/lessons/${lesson.id}`);
+      };
+      if (form.recurring) {
+        payload.recurrence = {
+          weekday: jsToIsoWeekday(weekdayFromDate(form.lesson_date)),
+          weeks_ahead: Number(form.weeks_ahead),
+        };
+      }
+      const result = await api.lessons.create(payload);
+      router.push(`/lessons/${result.lesson.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Ошибка");
     }
   };
 
   if (loading) return <LoadingSpinner />;
+
+  const wd = jsToIsoWeekday(weekdayFromDate(form.lesson_date));
 
   return (
     <div className="max-w-xl">
@@ -102,6 +121,35 @@ export default function NewLessonPage() {
               />
             </div>
           </div>
+          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.recurring}
+                onChange={(e) => setForm({ ...form, recurring: e.target.checked })}
+                className="w-4 h-4 rounded"
+              />
+              <span className="text-sm font-medium">Повторять каждую неделю</span>
+            </label>
+            {form.recurring && (
+              <>
+                <p className="text-sm text-slate-600">
+                  Каждый <strong>{WEEKDAYS[wd]}</strong> в {form.lesson_time}
+                </p>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Создать занятий вперёд (недель)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={52}
+                    value={form.weeks_ahead}
+                    onChange={(e) => setForm({ ...form, weeks_ahead: Number(e.target.value) })}
+                    className="w-full px-4 py-3 rounded-xl border bg-white"
+                  />
+                </div>
+              </>
+            )}
+          </div>
           <div>
             <label className="block text-sm font-medium mb-1">Длительность (мин)</label>
             <input
@@ -137,7 +185,7 @@ export default function NewLessonPage() {
             </div>
           </div>
           <button type="submit" className="w-full py-3 rounded-xl bg-brand-green text-white font-semibold">
-            Создать и заполнить чек-лист →
+            {form.recurring ? "Создать серию занятий →" : "Создать и заполнить чек-лист →"}
           </button>
         </form>
       )}

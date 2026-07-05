@@ -3,20 +3,28 @@ type CacheEntry = {
   status: "loading" | "ready" | "error";
 };
 
-export function resolveBoardImageUrl(url: string): string {
+export function resolveBoardImageUrl(url: string, shareToken?: string): string {
   if (typeof window === "undefined") return url;
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (url.startsWith("/")) return `${window.location.origin}${url}`;
-  return url;
+  let resolved = url;
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    if (url.startsWith("/")) {
+      resolved = `${window.location.origin}${url}`;
+    }
+  }
+  if (!shareToken || resolved.includes("token=")) return resolved;
+  if (!resolved.includes("/media/boards/")) return resolved;
+  const sep = resolved.includes("?") ? "&" : "?";
+  return `${resolved}${sep}token=${encodeURIComponent(shareToken)}`;
 }
 
 /** Возвращает закэшированное изображение или начинает загрузку; onReady вызывается один раз при успехе. */
 export function getBoardImage(
   cache: Map<string, CacheEntry>,
   url: string,
-  onReady?: () => void
+  onReady?: () => void,
+  shareToken?: string
 ): HTMLImageElement | null {
-  const key = resolveBoardImageUrl(url);
+  const key = resolveBoardImageUrl(url, shareToken);
   let entry = cache.get(key);
 
   if (!entry) {

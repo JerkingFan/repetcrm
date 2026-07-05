@@ -12,8 +12,15 @@ from urllib.parse import quote
 import httpx
 
 from app.config import settings
+from app.services.circuit_breaker import CircuitBreaker, CircuitOpenError
 
 logger = logging.getLogger(__name__)
+
+_latex_circuit = CircuitBreaker(
+    "latex_online",
+    failure_threshold=settings.latex_circuit_failures,
+    reset_timeout_sec=settings.latex_circuit_reset_sec,
+)
 
 PDFLATEX_PREAMBLE = r"""\documentclass[a4paper,12pt]{article}
 \usepackage[T1,T2A]{fontenc}
@@ -82,6 +89,11 @@ def compile_tex_online(tex: str, out_path: str, *, timeout: float = 90.0) -> boo
     """latexonline.cc — облачная компиляция (аналог Overleaf без API-ключа)."""
     if not settings.latex_online_compile:
         return False
+    try:
+        _latex_circuit.before_call()
+    except CircuitOpenError:
+        logger.warning("LaTeX online skipped — circuit open")
+        return False
     base = settings.latex_online_url.rstrip("/")
     # pdflatex + T2A/fontenc — кириллица на latexonline.cc
     url = f"{base}?command=pdflatex&text={quote(tex)}"
@@ -94,14 +106,17 @@ def compile_tex_online(tex: str, out_path: str, *, timeout: float = 90.0) -> boo
             if r.status_code == 200 and r.content[:4] == b"%PDF":
                 Path(out_path).write_bytes(r.content)
                 logger.info("PDF (latexonline.cc): %s", out_path)
+                _latex_circuit.record_success()
                 return True
             logger.warning(
                 "LaTeX online HTTP %s: %s",
                 r.status_code,
                 (r.text or "")[:300],
             )
+            _latex_circuit.record_failure()
     except Exception as e:
         logger.warning("LaTeX online error: %s", e)
+        _latex_circuit.record_failure()
     return False
 
 

@@ -6,12 +6,30 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.auth import create_access_token, get_password_hash, verify_password
+from app.auth_cookies import clear_access_cookie, set_access_cookie
 from app.config import get_settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.http_utils import get_client_ip
 from app.models import User
-from app.schemas import UserRegister, UserLogin, Token, UserOut, OnboardingComplete, OnboardingUpdate
+from app.schemas import (
+    UserRegister,
+    UserLogin,
+    Token,
+    UserOut,
+    OnboardingComplete,
+    OnboardingUpdate,
+    ForgotPasswordIn,
+    ResetPasswordIn,
+    ChangePasswordIn,
+    NotificationSettingsOut,
+    NotificationSettingsUpdate,
+    MessageOut,
+    PaymentRequisitesOut,
+    PaymentRequisitesUpdate,
+)
+from app.services.password_reset import consume_reset_token, create_reset_token, send_reset_email
+from app.services.mailer import smtp_configured
 from app.services.auth_rate_limit import (
     email_fingerprint,
     get_login_limiter,
@@ -82,7 +100,8 @@ def _issue_tokens(
     db.commit()
     access = create_access_token(user.id)
     _set_refresh_cookie(response, raw_refresh)
-    return Token(access_token=access)
+    set_access_cookie(response, access)
+    return Token(access_token="", token_type="cookie")
 
 
 @router.post("/register", response_model=Token)
@@ -178,6 +197,7 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
     session = get_valid_session(db, raw)
     if not session:
         _clear_refresh_cookie(response)
+        clear_access_cookie(response)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
     ip, ua = _client_meta(request)
@@ -185,12 +205,14 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
         new_raw, _new_session = rotate_session(db, session, ip=ip, user_agent=ua)
     except ValueError:
         _clear_refresh_cookie(response)
+        clear_access_cookie(response)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     db.commit()
     access = create_access_token(session.user_id)
     _set_refresh_cookie(response, new_raw)
-    return Token(access_token=access)
+    set_access_cookie(response, access)
+    return Token(access_token="", token_type="cookie")
 
 
 @router.post("/logout", status_code=204)
@@ -203,6 +225,7 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
             revoke_session(db, session)
             db.commit()
     _clear_refresh_cookie(response)
+    clear_access_cookie(response)
 
 
 @router.get("/me", response_model=UserOut)
@@ -240,3 +263,108 @@ def update_profile(
     db.commit()
     db.refresh(user)
     return user_to_out(user)
+
+
+@router.post("/forgot-password", response_model=MessageOut)
+def forgot_password(data: ForgotPasswordIn, request: Request, db: Session = Depends(get_db)):
+    cfg = get_settings()
+    ip = get_client_ip(request)
+    limiter = get_register_limiter(5, 3600)
+    if limiter.is_blocked(f"forgot:{ip}"):
+        raise HTTPException(status_code=429, detail="Too many requests")
+    limiter.record(f"forgot:{ip}")
+
+    user = db.query(User).filter(User.email == data.email).first()
+    if user:
+        raw = create_reset_token(db, user)
+        db.commit()
+        send_reset_email(user, raw)
+    return MessageOut(message="If the email exists, a reset link has been sent.")
+
+
+@router.post("/reset-password", response_model=MessageOut)
+def reset_password(data: ResetPasswordIn, db: Session = Depends(get_db)):
+    user = consume_reset_token(db, data.token)
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    user.hashed_password = get_password_hash(data.password)
+    db.commit()
+    return MessageOut(message="Password updated. You can log in now.")
+
+
+@router.post("/change-password", response_model=MessageOut)
+def change_password(
+    data: ChangePasswordIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(data.current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    user.hashed_password = get_password_hash(data.new_password)
+    db.commit()
+    return MessageOut(message="Password changed.")
+
+
+@router.get("/notification-settings", response_model=NotificationSettingsOut)
+def get_notification_settings(user: User = Depends(get_current_user)):
+    cfg = get_settings()
+    return NotificationSettingsOut(
+        notify_email=user.notify_email,
+        notify_telegram=user.notify_telegram,
+        notify_lesson_tomorrow=user.notify_lesson_tomorrow,
+        notify_unpaid=user.notify_unpaid,
+        notify_homework_ready=user.notify_homework_ready,
+        telegram_chat_id=user.telegram_chat_id or "",
+        smtp_configured=smtp_configured(),
+        telegram_configured=bool(cfg.telegram_bot_token.strip()),
+    )
+
+
+@router.put("/notification-settings", response_model=NotificationSettingsOut)
+def update_notification_settings(
+    data: NotificationSettingsUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if data.notify_email is not None:
+        user.notify_email = data.notify_email
+    if data.notify_telegram is not None:
+        user.notify_telegram = data.notify_telegram
+    if data.notify_lesson_tomorrow is not None:
+        user.notify_lesson_tomorrow = data.notify_lesson_tomorrow
+    if data.notify_unpaid is not None:
+        user.notify_unpaid = data.notify_unpaid
+    if data.notify_homework_ready is not None:
+        user.notify_homework_ready = data.notify_homework_ready
+    if data.telegram_chat_id is not None:
+        user.telegram_chat_id = data.telegram_chat_id.strip()
+    db.commit()
+    db.refresh(user)
+    cfg = get_settings()
+    return NotificationSettingsOut(
+        notify_email=user.notify_email,
+        notify_telegram=user.notify_telegram,
+        notify_lesson_tomorrow=user.notify_lesson_tomorrow,
+        notify_unpaid=user.notify_unpaid,
+        notify_homework_ready=user.notify_homework_ready,
+        telegram_chat_id=user.telegram_chat_id or "",
+        smtp_configured=smtp_configured(),
+        telegram_configured=bool(cfg.telegram_bot_token.strip()),
+    )
+
+
+@router.get("/payment-requisites", response_model=PaymentRequisitesOut)
+def get_payment_requisites(user: User = Depends(get_current_user)):
+    return PaymentRequisitesOut(payment_details=user.payment_details or "")
+
+
+@router.put("/payment-requisites", response_model=PaymentRequisitesOut)
+def update_payment_requisites(
+    data: PaymentRequisitesUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user.payment_details = (data.payment_details or "").strip()
+    db.commit()
+    db.refresh(user)
+    return PaymentRequisitesOut(payment_details=user.payment_details)
