@@ -8,7 +8,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Inspector
 
 from app.config import settings
@@ -34,6 +34,71 @@ def _current_revision() -> str | None:
 
 def _legacy_database_exists() -> bool:
     return inspect(engine).has_table("users")
+
+
+def _repair_missing_auth_sessions() -> None:
+    """Old DBs may have users but no auth_sessions — login would 500 on session insert."""
+    insp = inspect(engine)
+    if not insp.has_table("users") or insp.has_table("auth_sessions"):
+        return
+
+    logger.warning("Legacy DB repair: creating missing auth_sessions table")
+    dialect = engine.dialect.name
+    with engine.begin() as conn:
+        if dialect == "sqlite":
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE auth_sessions (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        token_hash VARCHAR(64) NOT NULL,
+                        expires_at DATETIME NOT NULL,
+                        revoked_at DATETIME,
+                        created_at DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+                        last_ip VARCHAR(45) NOT NULL DEFAULT '',
+                        user_agent VARCHAR(512) NOT NULL DEFAULT '',
+                        FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_auth_sessions_token_hash "
+                    "ON auth_sessions (token_hash)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_auth_sessions_user_id "
+                    "ON auth_sessions (user_id)"
+                )
+            )
+        else:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS auth_sessions (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        token_hash VARCHAR(64) NOT NULL UNIQUE,
+                        expires_at TIMESTAMP NOT NULL,
+                        revoked_at TIMESTAMP,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        last_ip VARCHAR(45) NOT NULL DEFAULT '',
+                        user_agent VARCHAR(512) NOT NULL DEFAULT ''
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_auth_sessions_user_id "
+                    "ON auth_sessions (user_id)"
+                )
+            )
+    logger.info("auth_sessions table created")
 
 
 def _detect_legacy_revision(insp: Inspector) -> str:
@@ -67,11 +132,11 @@ def _detect_legacy_revision(insp: Inspector) -> str:
         if "portal_token" in st_cols or "balance" in st_cols or insp.has_table("lesson_packages"):
             return "f7a8b9c0d1e2"
 
-    if insp.has_table("auth_sessions"):
-        return "e6f7a8b9c0d1"
-
     if insp.has_table("board_snapshots"):
         return "d5e6f7a8b9c0"
+
+    if insp.has_table("auth_sessions"):
+        return "dfa02a76bcc0"
 
     return "dfa02a76bcc0"
 
@@ -84,6 +149,7 @@ def run_migrations() -> None:
     stamped at the detected revision, then upgraded to head — never replayed from
     initial_schema when users already exist.
     """
+    _repair_missing_auth_sessions()
     cfg = _alembic_config()
     current = _current_revision()
 

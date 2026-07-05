@@ -75,6 +75,38 @@ def test_existing_database_upgrades_preserving_users(tmp_path, monkeypatch):
     assert rev == "f3a4b5c6d7e8"
 
 
+def test_repair_creates_auth_sessions_for_legacy_users_db(tmp_path, monkeypatch):
+    """Users without auth_sessions (old create_all DB) — login must not 500."""
+    db = _reload_db_stack(tmp_path, monkeypatch, f"no_sess_{uuid.uuid4().hex}.db")
+
+    with db.engine.connect() as conn:
+        conn.execute(
+            __import__("sqlalchemy").text(
+                """
+                CREATE TABLE users (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL UNIQUE,
+                    hashed_password VARCHAR(255) NOT NULL,
+                    name VARCHAR(255) NOT NULL DEFAULT '',
+                    onboarding_completed BOOLEAN NOT NULL DEFAULT 0,
+                    subjects TEXT NOT NULL DEFAULT '[]',
+                    grade_levels TEXT NOT NULL DEFAULT '[]',
+                    teaching_format VARCHAR(50) NOT NULL DEFAULT '',
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        conn.commit()
+
+    from app.db_migrate import _repair_missing_auth_sessions
+
+    _repair_missing_auth_sessions()
+
+    insp = inspect(db.engine)
+    assert insp.has_table("auth_sessions")
+
+
 def test_legacy_db_without_alembic_version_stamps_then_upgrades(tmp_path, monkeypatch):
     """Populated DB without alembic_version must not replay initial_schema."""
     db = _reload_db_stack(tmp_path, monkeypatch, f"no_ver_{uuid.uuid4().hex}.db")
