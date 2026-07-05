@@ -22,6 +22,12 @@ async def shutdown(ctx) -> None:
     pass
 
 
+def _worker_redis_settings() -> RedisSettings:
+    cfg = get_settings()
+    url = cfg.redis_url.strip() or "redis://localhost:6379/0"
+    return RedisSettings.from_dsn(url)
+
+
 class WorkerSettings:
     functions = [generate_homework_task, build_pdf_task, run_daily_reminders]
     cron_jobs = [
@@ -37,9 +43,4 @@ class WorkerSettings:
     max_jobs = 8
     job_timeout = 600
     keep_result = 3600
-
-    @staticmethod
-    def redis_settings() -> RedisSettings:
-        cfg = get_settings()
-        url = cfg.redis_url.strip() or "redis://localhost:6379/0"
-        return RedisSettings.from_dsn(url)
+    redis_settings = _worker_redis_settings()
