@@ -117,34 +117,152 @@ _USER_SQLITE_COLUMN_DDLS: dict[str, str] = {
 }
 
 
-def _repair_users_table_columns() -> None:
-    """Add missing users columns so ORM login queries do not 500."""
+def _add_missing_columns(table: str, column_ddls: dict[str, str]) -> None:
     insp = inspect(engine)
-    if not insp.has_table("users"):
+    if not insp.has_table(table):
         return
 
-    existing = {c["name"] for c in insp.get_columns("users")}
+    existing = {c["name"] for c in insp.get_columns(table)}
     dialect = engine.dialect.name
     added: list[str] = []
 
     with engine.begin() as conn:
-        for col, ddl in _USER_SQLITE_COLUMN_DDLS.items():
+        for col, ddl in column_ddls.items():
             if col in existing:
                 continue
             if dialect == "sqlite":
-                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {ddl}"))
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
             else:
-                conn.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col} {ddl}"))
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {ddl}"))
             added.append(col)
 
     if added:
-        logger.warning("Legacy DB repair: added users columns %s", ", ".join(added))
+        logger.warning("Legacy DB repair: added %s columns: %s", table, ", ".join(added))
+
+
+def _repair_users_table_columns() -> None:
+    _add_missing_columns("users", _USER_SQLITE_COLUMN_DDLS)
+
+
+_STUDENTS_SQLITE_COLUMN_DDLS: dict[str, str] = {
+    "portal_token": "VARCHAR(64)",
+    "balance": "FLOAT NOT NULL DEFAULT 0",
+    "first_lesson_at": "DATE",
+    "last_lesson_at": "DATE",
+    "student_status": "VARCHAR(20) NOT NULL DEFAULT 'active'",
+    "parent_name": "VARCHAR(255) NOT NULL DEFAULT ''",
+    "parent_email": "VARCHAR(255) NOT NULL DEFAULT ''",
+    "parent_phone": "VARCHAR(64) NOT NULL DEFAULT ''",
+    "parent_notify_email": "BOOLEAN NOT NULL DEFAULT 1",
+    "parent_portal_token": "VARCHAR(64)",
+}
+
+_LESSONS_SQLITE_COLUMN_DDLS: dict[str, str] = {
+    "paid_at": "DATETIME",
+    "payment_source": "VARCHAR(30)",
+    "series_id": "INTEGER",
+    "package_id": "INTEGER",
+}
+
+
+def _repair_missing_payment_receipts() -> None:
+    insp = inspect(engine)
+    if insp.has_table("payment_receipts") or not insp.has_table("students"):
+        return
+
+    logger.warning("Legacy DB repair: creating payment_receipts table")
+    dialect = engine.dialect.name
+    with engine.begin() as conn:
+        if dialect == "sqlite":
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE payment_receipts (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        tutor_id INTEGER NOT NULL,
+                        student_id INTEGER NOT NULL,
+                        amount FLOAT NOT NULL,
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        file_path VARCHAR(512) NOT NULL DEFAULT '',
+                        original_filename VARCHAR(255) NOT NULL DEFAULT '',
+                        mime_type VARCHAR(80) NOT NULL DEFAULT '',
+                        parent_note TEXT NOT NULL DEFAULT '',
+                        tutor_note TEXT NOT NULL DEFAULT '',
+                        created_at DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+                        reviewed_at DATETIME,
+                        FOREIGN KEY(student_id) REFERENCES students (id) ON DELETE CASCADE,
+                        FOREIGN KEY(tutor_id) REFERENCES users (id) ON DELETE CASCADE
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_payment_receipts_tutor_id "
+                    "ON payment_receipts (tutor_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_payment_receipts_student_id "
+                    "ON payment_receipts (student_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_payment_receipts_status "
+                    "ON payment_receipts (status)"
+                )
+            )
+        else:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS payment_receipts (
+                        id SERIAL PRIMARY KEY,
+                        tutor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                        student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+                        amount DOUBLE PRECISION NOT NULL,
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        file_path VARCHAR(512) NOT NULL DEFAULT '',
+                        original_filename VARCHAR(255) NOT NULL DEFAULT '',
+                        mime_type VARCHAR(80) NOT NULL DEFAULT '',
+                        parent_note TEXT NOT NULL DEFAULT '',
+                        tutor_note TEXT NOT NULL DEFAULT '',
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        reviewed_at TIMESTAMP
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_payment_receipts_tutor_id "
+                    "ON payment_receipts (tutor_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_payment_receipts_student_id "
+                    "ON payment_receipts (student_id)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_payment_receipts_status "
+                    "ON payment_receipts (status)"
+                )
+            )
+    logger.info("payment_receipts table created")
 
 
 def repair_legacy_schema() -> None:
     """Idempotent fixes for DBs stamped ahead of their real schema."""
     _repair_missing_auth_sessions()
     _repair_users_table_columns()
+    _add_missing_columns("students", _STUDENTS_SQLITE_COLUMN_DDLS)
+    _add_missing_columns("lessons", _LESSONS_SQLITE_COLUMN_DDLS)
+    _repair_missing_payment_receipts()
 
 
 def _detect_legacy_revision(insp: Inspector) -> str:
@@ -195,8 +313,6 @@ def run_migrations() -> None:
     stamped at the detected revision, then upgraded to head — never replayed from
     initial_schema when users already exist.
     """
-    _repair_missing_auth_sessions()
-    _repair_users_table_columns()
     cfg = _alembic_config()
     current = _current_revision()
 
@@ -212,6 +328,9 @@ def run_migrations() -> None:
             )
             command.stamp(cfg, stamp_rev)
             command.upgrade(cfg, "head")
+        repair_legacy_schema()
         return
 
     command.upgrade(cfg, "head")
+    if _legacy_database_exists():
+        repair_legacy_schema()

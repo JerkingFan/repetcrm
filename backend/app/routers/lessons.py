@@ -44,6 +44,7 @@ from app.services.dashboard_cache import (
     set_cached_dashboard,
 )
 from app.services.dashboard_extended import build_extended_dashboard
+from app.db_migrate import repair_legacy_schema
 from app.services.job_queue import job_queue, ARQ_TASK_GENERATE_HOMEWORK
 from app.services.job_tasks import run_generate_homework
 from app.services.pdf import invalidate_homework_pdf
@@ -217,6 +218,7 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
 
 @router.get("/dashboard/extended", response_model=DashboardExtended)
 def dashboard_extended(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    repair_legacy_schema()
     return build_extended_dashboard(db, user.id, tutor_name=user.name or "")
 
 
