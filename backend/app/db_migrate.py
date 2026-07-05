@@ -9,6 +9,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import inspect
+from sqlalchemy.engine import Inspector
 
 from app.config import settings
 from app.database import engine
@@ -16,16 +17,7 @@ from app.database import engine
 logger = logging.getLogger(__name__)
 
 _ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
-
-# Tables introduced after initial Alembic adoption — if missing, run upgrade instead of stamp.
-_POST_LEGACY_TABLES = (
-    "auth_sessions",
-    "lesson_packages",
-    "homework_submissions",
-    "homework_templates",
-    "payment_intents",
-    "prompt_templates",
-)
+_HEAD_REVISION = "f3a4b5c6d7e8"
 
 
 def _alembic_config() -> Config:
@@ -44,25 +36,44 @@ def _legacy_database_exists() -> bool:
     return inspect(engine).has_table("users")
 
 
-def _schema_needs_upgrade() -> bool:
-    """True if an old DB is missing tables/columns added in later migrations."""
-    insp = inspect(engine)
-    for table in _POST_LEGACY_TABLES:
-        if not insp.has_table(table):
-            return True
-    if insp.has_table("students"):
-        cols = {c["name"] for c in insp.get_columns("students")}
-        if "portal_token" not in cols or "balance" not in cols or "parent_portal_token" not in cols:
-            return True
+def _detect_legacy_revision(insp: Inspector) -> str:
+    """Best-effort Alembic revision for a populated DB without alembic_version."""
+    if insp.has_table("payment_receipts"):
+        return _HEAD_REVISION
+
+    if insp.has_table("users"):
+        user_cols = {c["name"] for c in insp.get_columns("users")}
+        if "booking_slug" in user_cols or insp.has_table("trial_bookings"):
+            return "e2f3a4b5c6d7"
+
     if insp.has_table("homework_submissions"):
-        cols = {c["name"] for c in insp.get_columns("homework_submissions")}
-        if "status" not in cols:
-            return True
-    if insp.has_table("lessons"):
-        cols = {c["name"] for c in insp.get_columns("lessons")}
-        if "paid_at" not in cols:
-            return True
-    return False
+        hs_cols = {c["name"] for c in insp.get_columns("homework_submissions")}
+        if "status" in hs_cols:
+            return "d1e2f3a4b5c6"
+
+    if insp.has_table("students"):
+        st_cols = {c["name"] for c in insp.get_columns("students")}
+        if "parent_portal_token" in st_cols:
+            return "c0d1e2f3a4b5"
+
+    if insp.has_table("payment_intents") or insp.has_table("prompt_templates"):
+        return "b9c0d1e2f3a4"
+
+    if insp.has_table("homework_templates"):
+        return "a8b9c0d1e2f3"
+
+    if insp.has_table("students"):
+        st_cols = {c["name"] for c in insp.get_columns("students")}
+        if "portal_token" in st_cols or "balance" in st_cols or insp.has_table("lesson_packages"):
+            return "f7a8b9c0d1e2"
+
+    if insp.has_table("auth_sessions"):
+        return "e6f7a8b9c0d1"
+
+    if insp.has_table("board_snapshots"):
+        return "d5e6f7a8b9c0"
+
+    return "dfa02a76bcc0"
 
 
 def run_migrations() -> None:
@@ -70,20 +81,24 @@ def run_migrations() -> None:
     Apply Alembic migrations.
 
     Existing databases created before Alembic (create_all + runtime ALTER) are
-    stamped at head only when schema already matches head. Otherwise upgrade runs.
+    stamped at the detected revision, then upgraded to head — never replayed from
+    initial_schema when users already exist.
     """
     cfg = _alembic_config()
     current = _current_revision()
 
     if current is None and _legacy_database_exists():
-        if _schema_needs_upgrade():
-            logger.warning(
-                "Legacy database missing newer schema — running Alembic upgrade (not blind stamp)"
-            )
-            command.upgrade(cfg, "head")
-        else:
+        stamp_rev = _detect_legacy_revision(inspect(engine))
+        if stamp_rev == _HEAD_REVISION:
             command.stamp(cfg, "head")
-            logger.info("Legacy database detected — stamped Alembic head (schema complete)")
+            logger.info("Legacy database — schema at head, stamped %s", _HEAD_REVISION)
+        else:
+            logger.warning(
+                "Legacy database without alembic_version — stamping %s then upgrading to head",
+                stamp_rev,
+            )
+            command.stamp(cfg, stamp_rev)
+            command.upgrade(cfg, "head")
         return
 
     command.upgrade(cfg, "head")

@@ -44,6 +44,12 @@ require_env SECRET_KEY
 require_env NEXT_PUBLIC_API_URL
 require_env OPENROUTER_API_KEY
 
+COOKIE_VAL="$(grep '^COOKIE_SECURE=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d ' \"' | tr '[:upper:]' '[:lower:]' || true)"
+if [[ -n "$COOKIE_VAL" && "$COOKIE_VAL" != "true" && "$COOKIE_VAL" != "1" && "$COOKIE_VAL" != "yes" ]]; then
+  red "COOKIE_SECURE должен быть true в production (сейчас: ${COOKIE_VAL})"
+  exit 1
+fi
+
 DB_URL="$(grep '^DATABASE_URL=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d ' \"' || true)"
 if [[ -z "$DB_URL" ]]; then
   ylw "DATABASE_URL не задан — будет SQLite (sqlite:///./data/repetcrm.db)"

@@ -73,3 +73,40 @@ def test_existing_database_upgrades_preserving_users(tmp_path, monkeypatch):
 
     assert count == 1
     assert rev == "f3a4b5c6d7e8"
+
+
+def test_legacy_db_without_alembic_version_stamps_then_upgrades(tmp_path, monkeypatch):
+    """Populated DB without alembic_version must not replay initial_schema."""
+    db = _reload_db_stack(tmp_path, monkeypatch, f"no_ver_{uuid.uuid4().hex}.db")
+
+    from alembic import command
+    from alembic.config import Config
+
+    ini = Path(__file__).resolve().parent.parent / "alembic.ini"
+    cfg = Config(str(ini))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db.engine.url.database}")
+    command.upgrade(cfg, "e2f3a4b5c6d7")
+
+    with db.engine.connect() as conn:
+        conn.execute(
+            __import__("sqlalchemy").text(
+                "INSERT INTO users (email, hashed_password, name, onboarding_completed, "
+                "subjects, grade_levels, teaching_format, created_at) "
+                "VALUES ('legacy@test.example', 'hash', 'Legacy', 0, '[]', '[]', '', datetime('now'))"
+            )
+        )
+        conn.execute(__import__("sqlalchemy").text("DROP TABLE alembic_version"))
+        conn.commit()
+
+    db.init_db()
+
+    insp = inspect(db.engine)
+    assert insp.has_table("payment_receipts")
+    with db.engine.connect() as conn:
+        count = conn.execute(__import__("sqlalchemy").text("SELECT COUNT(*) FROM users")).scalar_one()
+        rev = conn.execute(
+            __import__("sqlalchemy").text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+
+    assert count == 1
+    assert rev == "f3a4b5c6d7e8"

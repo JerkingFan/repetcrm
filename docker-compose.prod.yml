@@ -53,6 +53,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://:changeme@redis:6379/0}
       MEDIA_DIR: /app/media
       APP_ENV: ${APP_ENV:-production}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      CORS_ALLOW_LOCALHOST_REGEX: ${CORS_ALLOW_LOCALHOST_REGEX:-false}
     volumes:
       - backend_data:/app/data
       - backend_media:/app/media
@@ -79,6 +81,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://:changeme@redis:6379/0}
       MEDIA_DIR: /app/media
       APP_ENV: ${APP_ENV:-production}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      CORS_ALLOW_LOCALHOST_REGEX: ${CORS_ALLOW_LOCALHOST_REGEX:-false}
     volumes:
       - backend_data:/app/data
       - backend_media:/app/media
