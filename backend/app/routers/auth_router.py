@@ -74,6 +74,7 @@ def _client_meta(request: Request) -> tuple[str, str]:
 
 def _set_refresh_cookie(response: Response, raw_token: str) -> None:
     cfg = get_settings()
+    # path="/" — cookie уходит и на /auth/*, и на /api/auth/* (nginx proxy)
     response.set_cookie(
         key=cfg.refresh_cookie_name,
         value=raw_token,
@@ -81,13 +82,16 @@ def _set_refresh_cookie(response: Response, raw_token: str) -> None:
         secure=cfg.cookie_secure,
         samesite="lax",
         max_age=cfg.refresh_token_expire_days * 86400,
-        path="/auth",
+        path="/",
     )
 
 
 def _clear_refresh_cookie(response: Response) -> None:
     cfg = get_settings()
+    response.delete_cookie(key=cfg.refresh_cookie_name, path="/")
+    # старый path=/auth (до фикса nginx /api) — подчистить
     response.delete_cookie(key=cfg.refresh_cookie_name, path="/auth")
+    response.delete_cookie(key=cfg.refresh_cookie_name, path="/api/auth")
 
 
 def _issue_tokens(

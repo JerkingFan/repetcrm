@@ -1,4 +1,4 @@
-"""HttpOnly access-token cookie (refresh token lives on /auth)."""
+"""HttpOnly access-token cookie (refresh — same site, path=/)."""
 
 from __future__ import annotations
 
