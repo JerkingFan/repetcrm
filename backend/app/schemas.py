@@ -54,6 +54,9 @@ class NotificationSettingsOut(BaseModel):
     notify_unpaid: bool
     notify_homework_ready: bool
     telegram_chat_id: str
+    contact_telegram: str = ""
+    contact_url: str = ""
+    hide_balance_in_portal: bool = True
     smtp_configured: bool = False
     telegram_configured: bool = False
 
@@ -65,6 +68,9 @@ class NotificationSettingsUpdate(BaseModel):
     notify_unpaid: Optional[bool] = None
     notify_homework_ready: Optional[bool] = None
     telegram_chat_id: Optional[str] = None
+    contact_telegram: Optional[str] = None
+    contact_url: Optional[str] = None
+    hide_balance_in_portal: Optional[bool] = None
 
 
 class MessageOut(BaseModel):
@@ -235,6 +241,7 @@ class LessonCreate(BaseModel):
     payment_amount: float = 0.0
     is_paid: bool = False
     notes: str = ""
+    meeting_url: str = ""
     recurrence: Optional[LessonRecurrenceIn] = None
 
 
@@ -248,11 +255,13 @@ class LessonUpdate(BaseModel):
     late_minutes: Optional[int] = None
     rescheduled_from_lesson_id: Optional[int] = None
     notes: Optional[str] = None
+    meeting_url: Optional[str] = None
 
 
 class HomeworkBrief(BaseModel):
     id: int
     homework_text: str
+    due_date: Optional[date] = None
     created_at: datetime
     updated_at: datetime
 
@@ -276,6 +285,7 @@ class LessonOut(BaseModel):
     rescheduled_from_lesson_id: Optional[int] = None
     homework_prefs: Optional[HomeworkPrefs] = None
     notes: str
+    meeting_url: str = ""
     created_at: datetime
     student_name: Optional[str] = None
     checklist_items: list[ChecklistItemOut] = []
@@ -299,19 +309,22 @@ class LessonListItem(BaseModel):
     is_conducted: bool = False
     status: str = "scheduled"
     notes: str = ""
+    meeting_url: str = ""
     student_name: Optional[str] = None
     homework_id: Optional[int] = None
 
 
 # Homework
 class HomeworkUpdate(BaseModel):
-    homework_text: str
+    homework_text: Optional[str] = None
+    due_date: Optional[date] = None
 
 
 class HomeworkOut(BaseModel):
     id: int
     lesson_id: int
     homework_text: str
+    due_date: Optional[date] = None
     created_at: datetime
     updated_at: datetime
     student_name: Optional[str] = None
@@ -373,6 +386,7 @@ class DashboardLessonBrief(BaseModel):
     duration_minutes: int
     is_paid: bool
     payment_amount: float
+    meeting_url: str = ""
 
 
 class DashboardDebtItem(BaseModel):
@@ -612,7 +626,11 @@ class PortalStudentOut(BaseModel):
     subject: str
     grade: str
     balance: float
+    show_balance: bool = False
     tutor_name: str = ""
+    tutor_telegram: str = ""
+    tutor_contact_url: str = ""
+    tutor_telegram_url: str = ""
 
 
 class PortalLessonOut(BaseModel):
@@ -623,6 +641,12 @@ class PortalLessonOut(BaseModel):
     status: str
     is_conducted: bool
     notes: str = ""
+    meeting_url: str = ""
+    board_id: Optional[int] = None
+    board_url: str = ""
+    board_title: str = ""
+    can_request_reschedule: bool = True
+    reschedule_status: str = ""  # pending|approved|rejected|""
 
 
 class HomeworkSubmissionOut(BaseModel):
@@ -657,6 +681,7 @@ class PortalHomeworkOut(BaseModel):
     lesson_date: date
     preview: str
     tasks_count: int = 0
+    due_date: Optional[date] = None
     has_submission: bool
     submission_status: str = "not_submitted"
     updated_at: datetime
@@ -668,8 +693,63 @@ class PortalHomeworkDetailOut(BaseModel):
     lesson_date: date
     homework_text: str
     preview_html: str = ""
+    due_date: Optional[date] = None
     has_submission: bool
+    board_url: str = ""
+    meeting_url: str = ""
+    tutor_telegram_url: str = ""
     submissions: list[HomeworkSubmissionOut] = []
+
+
+class PortalProgressOut(BaseModel):
+    homework_total: int = 0
+    homework_submitted: int = 0
+    homework_reviewed: int = 0
+    homework_needs_revision: int = 0
+    streak_days: int = 0
+    avg_ai_score: Optional[float] = None
+    topics: list[str] = []
+    recent_scores: list[dict] = []
+
+
+class PortalRescheduleIn(BaseModel):
+    lesson_id: int
+    message: str = Field(default="", max_length=1000)
+    preferred_date: Optional[date] = None
+    preferred_time: str = Field(default="", max_length=5)
+
+
+class PortalRescheduleOut(BaseModel):
+    id: int
+    lesson_id: int
+    status: str
+    message: str = ""
+    preferred_date: Optional[date] = None
+    preferred_time: str = ""
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RescheduleRequestOut(BaseModel):
+    id: int
+    lesson_id: int
+    student_id: int
+    student_name: str = ""
+    lesson_date: date
+    lesson_time: str
+    message: str = ""
+    preferred_date: Optional[date] = None
+    preferred_time: str = ""
+    status: str
+    tutor_note: str = ""
+    created_at: datetime
+
+
+class RescheduleResolveIn(BaseModel):
+    status: str = Field(pattern="^(approved|rejected)$")
+    tutor_note: str = Field(default="", max_length=1000)
 
 
 class PortalLinkOut(BaseModel):

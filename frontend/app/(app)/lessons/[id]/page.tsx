@@ -40,8 +40,9 @@ type Lesson = {
   payment_amount: number;
   is_paid: boolean;
   notes: string;
+  meeting_url?: string;
   checklist_items: Array<ChecklistRow & { id?: number }>;
-  homework?: { id: number; homework_text: string };
+  homework?: { id: number; homework_text: string; due_date?: string | null };
   is_conducted?: boolean;
   homework_prefs?: HomeworkPrefs;
 };
@@ -61,6 +62,7 @@ export default function LessonDetailPage() {
   const [homeworkHtml, setHomeworkHtml] = useState("");
   const [homeworkDisplayHtml, setHomeworkDisplayHtml] = useState("");
   const [homeworkId, setHomeworkId] = useState<number | null>(null);
+  const [homeworkDueDate, setHomeworkDueDate] = useState("");
   const [homeworkView, setHomeworkView] = useState<"latex" | "preview">("preview");
   const [editMode, setEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -120,6 +122,7 @@ export default function LessonDetailPage() {
       if (l.homework) {
         setHomeworkHtml(l.homework.homework_text);
         setHomeworkId(l.homework.id);
+        setHomeworkDueDate(l.homework.due_date ? l.homework.due_date.slice(0, 10) : "");
         loadSubmissions(l.homework.id);
         api.homework
           .previewHtml(l.homework.id)
@@ -127,6 +130,7 @@ export default function LessonDetailPage() {
           .catch(() => setHomeworkDisplayHtml(l.homework!.homework_text));
       } else {
         setHomeworkId(null);
+        setHomeworkDueDate("");
         setSubmissions([]);
         setHomeworkDisplayHtml("");
       }
@@ -295,9 +299,26 @@ export default function LessonDetailPage() {
     if (!homeworkId) return;
     setSaving(true);
     try {
-      await api.homework.update(homeworkId, homeworkHtml);
+      await api.homework.update(homeworkId, {
+        homework_text: homeworkHtml,
+        due_date: homeworkDueDate || null,
+      });
       setEditMode(false);
       setSuccess("ДЗ сохранено");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Ошибка");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveDueDate = async () => {
+    if (!homeworkId) return;
+    setSaving(true);
+    setError("");
+    try {
+      await api.homework.update(homeworkId, { due_date: homeworkDueDate || null });
+      setSuccess(homeworkDueDate ? "Срок сдачи сохранён" : "Срок сдачи снят");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Ошибка");
     } finally {
@@ -459,6 +480,7 @@ export default function LessonDetailPage() {
         payment_amount: lesson.payment_amount,
         is_paid: lesson.is_paid,
         notes: lesson.notes || "",
+        meeting_url: lesson.meeting_url || "",
       }
     : null;
 
@@ -480,6 +502,16 @@ export default function LessonDetailPage() {
             {" · "}
             {lesson?.duration_minutes} мин
           </p>
+          {lesson?.meeting_url && (
+            <a
+              href={lesson.meeting_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-2 text-sm font-medium text-brand-blue hover:underline"
+            >
+              Ссылка на урок →
+            </a>
+          )}
           <p className="mt-2 text-sm flex flex-wrap items-center gap-2">
             {lesson?.is_paid ? (
               <span className="text-brand-green font-medium">
@@ -773,6 +805,29 @@ export default function LessonDetailPage() {
               </button>
             </div>
           </div>
+          {homeworkId && (
+            <div className="mt-4 flex flex-wrap items-end gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">
+                  Срок сдачи для ученика
+                </label>
+                <input
+                  type="date"
+                  value={homeworkDueDate}
+                  onChange={(e) => setHomeworkDueDate(e.target.value)}
+                  className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={saveDueDate}
+                disabled={saving}
+                className="px-4 py-2 rounded-xl bg-brand-blue text-white text-sm font-medium disabled:opacity-60"
+              >
+                Сохранить срок
+              </button>
+            </div>
+          )}
           {pdfLoading && (
             <div
               className="mt-4 rounded-xl border border-brand-green/25 bg-emerald-50/80 p-4"
@@ -868,7 +923,7 @@ export default function LessonDetailPage() {
                       >
                         <p className="font-medium">
                           AI: {aiVerdictLabel[s.ai_verdict] || s.ai_verdict}
-                          {s.ai_score != null ? ` · ${s.ai_score}%` : ""}
+                          {s.ai_verdict !== "unclear" && s.ai_score != null ? ` · ${s.ai_score}%` : ""}
                         </p>
                         {s.ai_feedback && <p className="mt-1">{s.ai_feedback}</p>}
                       </div>

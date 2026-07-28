@@ -52,6 +52,7 @@ from app.services.lesson_recurrence import expand_series
 from app.services.package_billing import try_auto_pay_lesson
 from app.services.student_lifecycle import touch_student_lesson_dates
 from app.services.trial_funnel_service import get_trial_followup
+from app.services.portal_student import default_homework_due_date
 
 router = APIRouter(tags=["lessons"])
 
@@ -91,6 +92,7 @@ def lesson_to_out(lesson: Lesson) -> LessonOut:
         rescheduled_from_lesson_id=getattr(lesson, "rescheduled_from_lesson_id", None),
         homework_prefs=HomeworkPrefs(**prefs_data),
         notes=lesson.notes,
+        meeting_url=getattr(lesson, "meeting_url", "") or "",
         created_at=lesson.created_at,
         student_name=lesson.student.name if lesson.student else None,
         series_id=getattr(lesson, "series_id", None),
@@ -117,6 +119,7 @@ def lesson_list_item(
         is_conducted=bool(lesson.is_conducted),
         status=getattr(lesson, "status", "scheduled") or "scheduled",
         notes=lesson.notes or "",
+        meeting_url=getattr(lesson, "meeting_url", "") or "",
         student_name=student_name or (lesson.student.name if lesson.student else None),
         homework_id=homework_id,
     )
@@ -490,6 +493,8 @@ async def generate_lesson_homework(
     else:
         hw = Homework(lesson_id=lesson_id, homework_text=html)
         db.add(hw)
+    if not hw.due_date:
+        hw.due_date = default_homework_due_date(db, lesson)
     db.commit()
     db.refresh(hw)
     invalidate_homework_pdf(hw.id)
@@ -497,6 +502,7 @@ async def generate_lesson_homework(
         id=hw.id,
         lesson_id=hw.lesson_id,
         homework_text=hw.homework_text,
+        due_date=getattr(hw, "due_date", None),
         created_at=hw.created_at,
         updated_at=hw.updated_at,
         student_name=lesson.student.name,

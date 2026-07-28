@@ -153,14 +153,18 @@ def update_homework(
     db: Session = Depends(get_db),
 ):
     hw = get_homework_or_404(homework_id, user, db)
-    hw.homework_text = data.homework_text
+    if data.homework_text is not None:
+        hw.homework_text = data.homework_text
+        invalidate_homework_pdf(hw.id)
+    if "due_date" in data.model_fields_set:
+        hw.due_date = data.due_date
     db.commit()
     db.refresh(hw)
-    invalidate_homework_pdf(hw.id)
     return HomeworkOut(
         id=hw.id,
         lesson_id=hw.lesson_id,
         homework_text=hw.homework_text,
+        due_date=getattr(hw, "due_date", None),
         created_at=hw.created_at,
         updated_at=hw.updated_at,
         student_name=hw.lesson.student.name,

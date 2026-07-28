@@ -56,6 +56,9 @@ class User(Base):
     booking_hours: Mapped[str] = mapped_column(Text, default="[]")
     booking_reply_text: Mapped[str] = mapped_column(Text, default="")
     payment_details: Mapped[str] = mapped_column(Text, default="")
+    contact_telegram: Mapped[str] = mapped_column(String(64), default="")
+    contact_url: Mapped[str] = mapped_column(String(500), default="")
+    hide_balance_in_portal: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     students: Mapped[list["Student"]] = relationship(back_populates="tutor")
@@ -250,6 +253,7 @@ class Lesson(Base):
     status_changed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     homework_prefs: Mapped[str] = mapped_column(Text, default="")
     notes: Mapped[str] = mapped_column(Text, default="")
+    meeting_url: Mapped[str] = mapped_column(String(500), default="")
     series_id: Mapped[int | None] = mapped_column(ForeignKey("lesson_series.id"), nullable=True, index=True)
     package_id: Mapped[int | None] = mapped_column(ForeignKey("lesson_packages.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -287,6 +291,7 @@ class Homework(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     lesson_id: Mapped[int] = mapped_column(ForeignKey("lessons.id"), unique=True)
     homework_text: Mapped[str] = mapped_column(Text, default="")
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -440,3 +445,23 @@ class PaymentReceipt(Base):
 
     tutor: Mapped["User"] = relationship()
     student: Mapped["Student"] = relationship()
+
+
+class LessonRescheduleRequest(Base):
+    __tablename__ = "lesson_reschedule_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    lesson_id: Mapped[int] = mapped_column(ForeignKey("lessons.id", ondelete="CASCADE"), index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), index=True)
+    tutor_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    message: Mapped[str] = mapped_column(Text, default="")
+    preferred_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    preferred_time: Mapped[str] = mapped_column(String(5), default="")
+    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|approved|rejected
+    tutor_note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    lesson: Mapped["Lesson"] = relationship()
+    student: Mapped["Student"] = relationship()
+    tutor: Mapped["User"] = relationship()

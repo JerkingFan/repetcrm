@@ -16,6 +16,7 @@ from app.redis_client import close_redis, get_redis
 from app.routers import auth_router, students, lessons, homework, ai
 from app.routers import boards, media, data_transfer, portal, calendar_router, homework_templates
 from app.routers import payments, analytics, prompt_marketplace, parent_portal, booking, payment_receipts
+from app.routers import reschedule
 from app.services.homework_ai import get_ai_status
 from app.services.db_startup import get_db_health, run_startup_db_checks
 from app.services.db_safeguard import run_pre_db_startup, validate_production_user_floor
@@ -152,6 +153,7 @@ app.include_router(prompt_marketplace.router)
 app.include_router(parent_portal.router)
 app.include_router(booking.router)
 app.include_router(payment_receipts.router)
+app.include_router(reschedule.router)
 
 
 @app.get("/health")

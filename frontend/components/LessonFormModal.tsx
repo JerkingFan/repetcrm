@@ -24,6 +24,7 @@ export type LessonFormData = {
   payment_amount: number;
   is_paid: boolean;
   notes: string;
+  meeting_url?: string;
 };
 
 export default function LessonFormModal({
@@ -56,6 +57,7 @@ export default function LessonFormModal({
     payment_amount: lesson?.payment_amount ?? 0,
     is_paid: lesson?.is_paid ?? false,
     notes: lesson?.notes ?? "",
+    meeting_url: lesson?.meeting_url ?? "",
   });
 
   useEffect(() => {
@@ -91,6 +93,7 @@ export default function LessonFormModal({
           payment_amount: Number(form.payment_amount),
           is_paid: form.is_paid,
           notes: form.notes,
+          meeting_url: form.meeting_url.trim(),
         });
         if (onSaved) onSaved();
         else router.push(`/lessons/${created.lesson.id}`);
@@ -102,6 +105,7 @@ export default function LessonFormModal({
           payment_amount: Number(form.payment_amount),
           is_paid: form.is_paid,
           notes: form.notes,
+          meeting_url: form.meeting_url.trim(),
         });
         const sync = res?.boundary_sync ?? null;
         setBoundarySync(sync);
@@ -316,6 +320,32 @@ export default function LessonFormModal({
                   </label>
                 </div>
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">
+                Ссылка на урок (Zoom / Meet / Telegram)
+              </label>
+              <input
+                type="url"
+                value={form.meeting_url}
+                onChange={(e) => setForm({ ...form, meeting_url: e.target.value })}
+                placeholder="https://…"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">
+                Ученик увидит кнопку «Войти в урок» в кабинете
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Заметки</label>
+              <textarea
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                rows={2}
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm"
+              />
             </div>
 
             {mode === "edit" && lesson?.id && (

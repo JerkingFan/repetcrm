@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import create_portal_session_token
 from app.config import get_settings
 from app.database import get_db
-from app.models import Homework, HomeworkSubmission, Lesson, LessonStatus, Student, User
+from app.models import Homework, HomeworkSubmission, Lesson, LessonRescheduleRequest, LessonStatus, Student, User
 from app.portal_cookies import clear_portal_cookie, read_portal_token, set_portal_cookie
 from app.portal_dependencies import get_current_student
 from app.schemas import (
@@ -24,12 +24,24 @@ from app.schemas import (
     PortalLoginIn,
     PortalStudentOut,
     PortalPaymentIntentIn,
+    PortalProgressOut,
+    PortalRescheduleIn,
+    PortalRescheduleOut,
     PaymentIntentOut,
 )
 from app.services.payment_service import create_payment_intent
 from app.services.ics_calendar import build_ics
 from app.services.homework_output import homework_content_to_html, homework_plain_preview
 from app.services.homework_submission_ai import mark_submission_pending_ai, schedule_ai_review
+from app.services.portal_student import (
+    board_public_url,
+    compute_progress,
+    default_homework_due_date,
+    latest_reschedule_map,
+    resolve_meeting_url,
+    student_out_fields,
+    telegram_url,
+)
 from app.services.portal_token import student_by_portal_token
 from app.services.auth_rate_limit import get_register_limiter
 
@@ -85,14 +97,7 @@ def portal_login(
     tutor = db.query(User).filter(User.id == student.tutor_id).first()
     session = create_portal_session_token(student.id)
     set_portal_cookie(response, session)
-    return PortalStudentOut(
-        id=student.id,
-        name=student.name,
-        subject=student.subject or "",
-        grade=student.grade or "",
-        balance=float(student.balance or 0),
-        tutor_name=tutor.name if tutor else "",
-    )
+    return PortalStudentOut(**student_out_fields(student, tutor))
 
 
 @router.post("/logout")
@@ -104,14 +109,12 @@ def portal_logout(response: Response):
 @router.get("/me", response_model=PortalStudentOut)
 def portal_me(student: Student = Depends(get_current_student), db: Session = Depends(get_db)):
     tutor = db.query(User).filter(User.id == student.tutor_id).first()
-    return PortalStudentOut(
-        id=student.id,
-        name=student.name,
-        subject=student.subject or "",
-        grade=student.grade or "",
-        balance=float(student.balance or 0),
-        tutor_name=tutor.name if tutor else "",
-    )
+    return PortalStudentOut(**student_out_fields(student, tutor))
+
+
+@router.get("/progress", response_model=PortalProgressOut)
+def portal_progress(student: Student = Depends(get_current_student), db: Session = Depends(get_db)):
+    return PortalProgressOut(**compute_progress(db, student))
 
 
 @router.get("/lessons", response_model=list[PortalLessonOut])
@@ -122,10 +125,12 @@ def portal_lessons(
     to_date: date | None = Query(None, alias="to"),
 ):
     today = date.today()
-    start = from_date or today
+    start = from_date or (today - timedelta(days=45))
     end = to_date or (today + timedelta(days=60))
+    tutor = db.query(User).filter(User.id == student.tutor_id).first()
     rows = (
         db.query(Lesson)
+        .options(joinedload(Lesson.board))
         .filter(
             Lesson.student_id == student.id,
             Lesson.lesson_date >= start,
@@ -135,6 +140,7 @@ def portal_lessons(
         .order_by(Lesson.lesson_date.asc(), Lesson.lesson_time.asc())
         .all()
     )
+    rmap = latest_reschedule_map(db, student.id, [l.id for l in rows])
     return [
         PortalLessonOut(
             id=l.id,
@@ -144,6 +150,12 @@ def portal_lessons(
             status=l.status or "scheduled",
             is_conducted=bool(l.is_conducted),
             notes=l.notes or "",
+            meeting_url=resolve_meeting_url(l, tutor),
+            board_id=l.board_id,
+            board_url=board_public_url(l.board),
+            board_title=(l.board.title if l.board else "") or "",
+            can_request_reschedule=not l.is_conducted and rmap.get(l.id) != "pending",
+            reschedule_status=rmap.get(l.id, ""),
         )
         for l in rows
     ]
@@ -185,6 +197,7 @@ def portal_homework_list(student: Student = Depends(get_current_student), db: Se
                 lesson_date=lesson_date,
                 preview=preview,
                 tasks_count=tasks_count,
+                due_date=getattr(hw, "due_date", None),
                 has_submission=hw.id in submitted,
                 submission_status=status_by_hw.get(hw.id, "not_submitted"),
                 updated_at=hw.updated_at,
@@ -202,12 +215,22 @@ def portal_homework_detail(
     row = (
         db.query(Homework, Lesson)
         .join(Lesson, Homework.lesson_id == Lesson.id)
+        .options(joinedload(Lesson.board))
         .filter(Homework.id == homework_id, Lesson.student_id == student.id)
         .first()
     )
     if not row:
         raise HTTPException(status_code=404, detail="Homework not found")
     hw, lesson = row
+    # reload lesson with board if needed
+    lesson = (
+        db.query(Lesson)
+        .options(joinedload(Lesson.board))
+        .filter(Lesson.id == lesson.id)
+        .first()
+        or lesson
+    )
+    tutor = db.query(User).filter(User.id == student.tutor_id).first()
     subs = (
         db.query(HomeworkSubmission)
         .filter(
@@ -223,7 +246,11 @@ def portal_homework_detail(
         lesson_date=lesson.lesson_date,
         homework_text=hw.homework_text,
         preview_html=homework_content_to_html(hw.homework_text, render_math_images=True),
+        due_date=getattr(hw, "due_date", None),
         has_submission=len(subs) > 0,
+        board_url=board_public_url(lesson.board),
+        meeting_url=resolve_meeting_url(lesson, tutor),
+        tutor_telegram_url=telegram_url((tutor.contact_telegram if tutor else "") or ""),
         submissions=[HomeworkSubmissionOut.model_validate(s) for s in subs],
     )
 
@@ -319,12 +346,83 @@ def portal_calendar_ics(student: Student = Depends(get_current_student), db: Ses
         .order_by(Lesson.lesson_date.asc())
         .all()
     )
-    body = build_ics(lessons, calendar_name=f"RepetCRM — {student.name}", student_name=student.name)
+    tutor = db.query(User).filter(User.id == student.tutor_id).first()
+    body = build_ics(
+        lessons,
+        calendar_name=f"RepetCRM — {student.name}",
+        student_name=student.name,
+        meeting_url_for=lambda l: resolve_meeting_url(l, tutor),
+    )
     return Response(
         content=body.encode("utf-8"),
         media_type="text/calendar; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="schedule-{student.id}.ics"'},
     )
+
+
+@router.post("/reschedule", response_model=PortalRescheduleOut, status_code=201)
+def portal_request_reschedule(
+    data: PortalRescheduleIn,
+    student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db),
+):
+    lesson = (
+        db.query(Lesson)
+        .filter(Lesson.id == data.lesson_id, Lesson.student_id == student.id)
+        .first()
+    )
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    if lesson.is_conducted:
+        raise HTTPException(status_code=400, detail="Урок уже проведён")
+    pending = (
+        db.query(LessonRescheduleRequest)
+        .filter(
+            LessonRescheduleRequest.lesson_id == lesson.id,
+            LessonRescheduleRequest.student_id == student.id,
+            LessonRescheduleRequest.status == "pending",
+        )
+        .first()
+    )
+    if pending:
+        raise HTTPException(status_code=400, detail="Запрос на перенос уже отправлен")
+
+    req = LessonRescheduleRequest(
+        lesson_id=lesson.id,
+        student_id=student.id,
+        tutor_id=student.tutor_id,
+        message=(data.message or "").strip()[:1000],
+        preferred_date=data.preferred_date,
+        preferred_time=(data.preferred_time or "").strip()[:5],
+        status="pending",
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    # уведомить репетитора в Telegram/email если настроено
+    tutor = db.query(User).filter(User.id == student.tutor_id).first()
+    if tutor:
+        try:
+            from app.services.notifications import notify_user
+
+            notify_user(
+                db,
+                tutor,
+                kind="reschedule_request",
+                ref_key=f"reschedule:{req.id}",
+                subject="RepetCRM: запрос на перенос урока",
+                body=(
+                    f"{student.name} просит перенести урок "
+                    f"{lesson.lesson_date} {lesson.lesson_time or ''}.\n"
+                    f"{req.message or ''}"
+                ).strip(),
+            )
+            db.commit()
+        except Exception:
+            pass
+
+    return PortalRescheduleOut.model_validate(req)
 
 
 @router.post("/payments/intent", response_model=PaymentIntentOut, status_code=201)

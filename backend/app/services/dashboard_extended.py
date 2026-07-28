@@ -20,6 +20,7 @@ from app.schemas import (
     DashboardPendingReceipt,
 )
 from app.services.trial_funnel_service import build_trial_followups, build_trial_lessons_this_week
+from app.services.portal_student import resolve_meeting_url
 
 INACTIVE_DAYS = 30
 OVERDUE_HOMEWORK_DAYS = 3
@@ -85,6 +86,7 @@ def build_extended_dashboard(db: Session, tutor_id: int, *, tutor_name: str = ""
         .limit(20)
         .all()
     )
+    tutor = db.query(User).filter(User.id == tutor_id).first()
     upcoming = [
         DashboardLessonBrief(
             id=lesson.id,
@@ -95,6 +97,7 @@ def build_extended_dashboard(db: Session, tutor_id: int, *, tutor_name: str = ""
             duration_minutes=lesson.duration_minutes,
             is_paid=lesson.is_paid,
             payment_amount=lesson.payment_amount,
+            meeting_url=resolve_meeting_url(lesson, tutor),
         )
         for lesson, name in upcoming_rows
     ]

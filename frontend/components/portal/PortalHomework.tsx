@@ -6,6 +6,7 @@ import {
   aiVerdictBoxClass,
   formatRuDate,
   formatRuWeekday,
+  homeworkDueLabel,
   isToday,
   submissionChipClass,
   SUBMISSION_STATUS_LABEL,
@@ -17,6 +18,7 @@ type HomeworkItem = {
   lesson_date: string;
   preview: string;
   tasks_count?: number;
+  due_date?: string | null;
   has_submission: boolean;
   submission_status?: string;
 };
@@ -40,6 +42,10 @@ type HomeworkDetail = {
   lesson_date: string;
   homework_text: string;
   preview_html?: string;
+  due_date?: string | null;
+  board_url?: string;
+  meeting_url?: string;
+  tutor_telegram_url?: string;
   submissions: Submission[];
 };
 
@@ -97,6 +103,11 @@ export default function PortalHomework({
   if (selectedId && detail) {
     const latest = detail.submissions[0];
     const status = latest?.status || "not_submitted";
+    const due = homeworkDueLabel(detail.due_date, detail.lesson_date);
+    const needHelp =
+      status === "needs_revision" ||
+      latest?.ai_verdict === "incorrect" ||
+      latest?.ai_verdict === "partially_correct";
 
     return (
       <>
@@ -122,6 +133,12 @@ export default function PortalHomework({
                     weekday: "short",
                   })}
                 </h2>
+                {due && (
+                  <p className={`text-sm mt-1 ${due.urgent ? "text-amber-100" : "text-white/75"}`}>
+                    {due.overdue ? "Просрочено · " : ""}
+                    {due.text}
+                  </p>
+                )}
               </div>
               <span
                 className={`text-[11px] font-semibold px-2.5 py-1 rounded-full shrink-0 ${
@@ -161,6 +178,31 @@ export default function PortalHomework({
             >
               {expanded ? "Свернуть задание" : "Показать полностью"}
             </button>
+
+            {(detail.board_url || detail.meeting_url) && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {detail.board_url && (
+                  <a
+                    href={detail.board_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700"
+                  >
+                    Материалы / доска
+                  </a>
+                )}
+                {detail.meeting_url && (
+                  <a
+                    href={detail.meeting_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 rounded-xl bg-brand-green text-white text-sm font-semibold"
+                  >
+                    Войти в урок
+                  </a>
+                )}
+              </div>
+            )}
           </div>
         </PortalCard>
 
@@ -193,7 +235,9 @@ export default function PortalHomework({
               <div className={`p-4 rounded-xl border text-sm ${aiVerdictBoxClass(latest.ai_verdict)}`}>
                 <p className="font-bold text-base">
                   {AI_VERDICT_LABEL[latest.ai_verdict] || latest.ai_verdict}
-                  {latest.ai_score != null ? ` · ${latest.ai_score}%` : ""}
+                  {latest.ai_verdict !== "unclear" && latest.ai_score != null
+                    ? ` · ${latest.ai_score}%`
+                    : ""}
                 </p>
                 {latest.ai_feedback && (
                   <p className="mt-2 leading-relaxed whitespace-pre-wrap">{latest.ai_feedback}</p>
@@ -212,6 +256,21 @@ export default function PortalHomework({
               </div>
             )}
           </PortalCard>
+        )}
+
+        {detail.tutor_telegram_url && (
+          <a
+            href={detail.tutor_telegram_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`block w-full text-center px-4 py-3 rounded-xl text-sm font-semibold ${
+              needHelp
+                ? "bg-sky-600 text-white"
+                : "border border-slate-200 bg-white text-brand-blue"
+            }`}
+          >
+            {needHelp ? "Написать репетитору" : "Есть вопрос? Написать репетитору"}
+          </a>
         )}
 
         <PortalCard className="p-5 space-y-4">
@@ -380,6 +439,7 @@ export default function PortalHomework({
           {filtered.map((h) => {
             const st = statusOf(h);
             const todo = isTodo(h);
+            const due = homeworkDueLabel(h.due_date, h.lesson_date);
             return (
               <li key={h.id}>
                 <button
@@ -413,15 +473,17 @@ export default function PortalHomework({
                             {formatRuDate(h.lesson_date)}
                           </p>
                           <p className="text-xs text-slate-500 mt-0.5">
-                            {h.tasks_count && h.tasks_count > 0
-                              ? `${h.tasks_count} ${
-                                  h.tasks_count === 1
-                                    ? "задача"
-                                    : h.tasks_count < 5
-                                      ? "задачи"
-                                      : "задач"
-                                }`
-                              : "Домашнее задание"}
+                            {due
+                              ? due.text
+                              : h.tasks_count && h.tasks_count > 0
+                                ? `${h.tasks_count} ${
+                                    h.tasks_count === 1
+                                      ? "задача"
+                                      : h.tasks_count < 5
+                                        ? "задачи"
+                                        : "задач"
+                                  }`
+                                : "Домашнее задание"}
                           </p>
                         </div>
                         <span

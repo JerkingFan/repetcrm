@@ -118,6 +118,9 @@ export default function SettingsPage() {
         notify_unpaid: notify.notify_unpaid,
         notify_homework_ready: notify.notify_homework_ready,
         telegram_chat_id: notify.telegram_chat_id,
+        contact_telegram: notify.contact_telegram || "",
+        contact_url: notify.contact_url || "",
+        hide_balance_in_portal: notify.hide_balance_in_portal !== false,
       });
       setNotify(updated);
       setNotifySaved(true);
@@ -294,7 +297,45 @@ export default function SettingsPage() {
                 checked={notify.notify_homework_ready}
                 onChange={(e) => toggleNotify("notify_homework_ready", e.target.checked)}
               />
-              <span className="text-sm">ДЗ готово</span>
+              <span className="text-sm">ДЗ готово / дедлайн завтра</span>
+            </label>
+          </div>
+
+          <div className="border-t pt-4 space-y-3">
+            <p className="text-sm font-medium text-slate-700">Кабинет ученика</p>
+            <div>
+              <label className="block text-sm font-medium mb-1">Telegram для связи (@username)</label>
+              <input
+                type="text"
+                value={notify.contact_telegram || ""}
+                onChange={(e) => setNotify({ ...notify, contact_telegram: e.target.value })}
+                placeholder="ivan_tutor"
+                className="w-full px-4 py-3 rounded-xl border"
+              />
+              <p className="text-xs text-slate-400 mt-1">Кнопка «Написать репетитору» в кабинете</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Ссылка на урок по умолчанию</label>
+              <input
+                type="url"
+                value={notify.contact_url || ""}
+                onChange={(e) => setNotify({ ...notify, contact_url: e.target.value })}
+                placeholder="https://meet.google.com/…"
+                className="w-full px-4 py-3 rounded-xl border"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                Если у занятия нет своей ссылки — подставится эта
+              </p>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={notify.hide_balance_in_portal !== false}
+                onChange={(e) =>
+                  setNotify({ ...notify, hide_balance_in_portal: e.target.checked })
+                }
+              />
+              <span className="text-sm">Скрыть баланс у ученика («оплачивает родитель»)</span>
             </label>
           </div>
           <button

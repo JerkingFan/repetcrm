@@ -1,6 +1,6 @@
 /** Shared labels/styles for student portal UI */
 
-export type PortalTab = "home" | "homework" | "schedule";
+export type PortalTab = "home" | "homework" | "schedule" | "progress";
 
 export const SUBMISSION_STATUS_LABEL: Record<string, string> = {
   not_submitted: "Не сдано",
@@ -63,4 +63,30 @@ export function isSoon(iso: string, withinDays = 2): boolean {
   t.setHours(0, 0, 0, 0);
   const diff = (d.getTime() - t.getTime()) / 86400000;
   return diff >= 0 && diff <= withinDays;
+}
+
+export function isOverdue(iso: string): boolean {
+  const d = new Date(iso);
+  d.setHours(0, 0, 0, 0);
+  const t = new Date();
+  t.setHours(0, 0, 0, 0);
+  return d.getTime() < t.getTime();
+}
+
+/** Prefer due_date for urgency; fall back to lesson_date. */
+export function homeworkDueLabel(dueDate?: string | null, lessonDate?: string): {
+  text: string;
+  urgent: boolean;
+  overdue: boolean;
+} | null {
+  const iso = dueDate || lessonDate;
+  if (!iso) return null;
+  if (dueDate) {
+    if (isOverdue(dueDate)) return { text: `срок ${formatRuDate(dueDate)}`, urgent: true, overdue: true };
+    if (isToday(dueDate)) return { text: "сдать сегодня", urgent: true, overdue: false };
+    if (isSoon(dueDate)) return { text: `до ${formatRuDate(dueDate)}`, urgent: true, overdue: false };
+    return { text: `до ${formatRuDate(dueDate)}`, urgent: false, overdue: false };
+  }
+  if (isSoon(iso)) return { text: "срочно", urgent: true, overdue: false };
+  return null;
 }

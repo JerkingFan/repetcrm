@@ -31,6 +31,7 @@ export default function NewLessonPage() {
     payment_amount: 0,
     is_paid: false,
     notes: "",
+    meeting_url: "",
     recurring: false,
     weeks_ahead: 8,
   });
@@ -57,6 +58,7 @@ export default function NewLessonPage() {
         payment_amount: Number(form.payment_amount),
         is_paid: form.is_paid,
         notes: form.notes,
+        meeting_url: form.meeting_url.trim(),
       };
       if (form.recurring) {
         payload.recurrence = {
@@ -183,6 +185,16 @@ export default function NewLessonPage() {
                 <span className="text-sm">Оплачено</span>
               </label>
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Ссылка на урок</label>
+            <input
+              type="url"
+              value={form.meeting_url}
+              onChange={(e) => setForm({ ...form, meeting_url: e.target.value })}
+              placeholder="https://zoom.us/… или Meet"
+              className="w-full px-4 py-3 rounded-xl border"
+            />
           </div>
           <button type="submit" className="w-full py-3 rounded-xl bg-brand-green text-white font-semibold">
             {form.recurring ? "Создать серию занятий →" : "Создать и заполнить чек-лист →"}

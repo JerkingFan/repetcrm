@@ -321,6 +321,9 @@ def get_notification_settings(user: User = Depends(get_current_user)):
         notify_unpaid=user.notify_unpaid,
         notify_homework_ready=user.notify_homework_ready,
         telegram_chat_id=user.telegram_chat_id or "",
+        contact_telegram=getattr(user, "contact_telegram", "") or "",
+        contact_url=getattr(user, "contact_url", "") or "",
+        hide_balance_in_portal=bool(getattr(user, "hide_balance_in_portal", True)),
         smtp_configured=smtp_configured(),
         telegram_configured=bool(cfg.telegram_bot_token.strip()),
     )
@@ -344,6 +347,12 @@ def update_notification_settings(
         user.notify_homework_ready = data.notify_homework_ready
     if data.telegram_chat_id is not None:
         user.telegram_chat_id = data.telegram_chat_id.strip()
+    if data.contact_telegram is not None:
+        user.contact_telegram = data.contact_telegram.strip().lstrip("@")
+    if data.contact_url is not None:
+        user.contact_url = data.contact_url.strip()
+    if data.hide_balance_in_portal is not None:
+        user.hide_balance_in_portal = data.hide_balance_in_portal
     db.commit()
     db.refresh(user)
     cfg = get_settings()
@@ -354,6 +363,9 @@ def update_notification_settings(
         notify_unpaid=user.notify_unpaid,
         notify_homework_ready=user.notify_homework_ready,
         telegram_chat_id=user.telegram_chat_id or "",
+        contact_telegram=getattr(user, "contact_telegram", "") or "",
+        contact_url=getattr(user, "contact_url", "") or "",
+        hide_balance_in_portal=bool(getattr(user, "hide_balance_in_portal", True)),
         smtp_configured=smtp_configured(),
         telegram_configured=bool(cfg.telegram_bot_token.strip()),
     )

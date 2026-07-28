@@ -21,6 +21,7 @@ type Lesson = CalendarLesson & {
   board_id?: number | null;
   payment_amount: number;
   notes?: string;
+  meeting_url?: string;
 };
 
 function toCalendarLesson(item: LessonListItem): Lesson {
@@ -35,6 +36,7 @@ function toCalendarLesson(item: LessonListItem): Lesson {
     is_paid: item.is_paid,
     payment_amount: item.payment_amount,
     notes: item.notes || "",
+    meeting_url: item.meeting_url || "",
     homework: item.homework_id ? { id: item.homework_id } : null,
   };
 }
@@ -101,6 +103,7 @@ export default function LessonsPage() {
       payment_amount: full.payment_amount,
       is_paid: full.is_paid,
       notes: full.notes || "",
+      meeting_url: full.meeting_url || "",
     });
   };
 

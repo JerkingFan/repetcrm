@@ -8,7 +8,7 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import SessionLocal
-from app.models import Lesson, LessonStatus, Student, User
+from app.models import Homework, Lesson, LessonStatus, Student, User
 from app.services.lesson_recurrence import expand_all_active_series
 from app.services.notifications import notify_user
 from app.services.parent_notifications import (
@@ -146,6 +146,41 @@ def _send_unpaid_reminders(db: Session) -> int:
     return sent
 
 
+def _send_homework_due_reminders(db: Session) -> int:
+    """Remind tutors when homework is due tomorrow (they can forward to student/Telegram)."""
+    tomorrow = date.today() + timedelta(days=1)
+    sent = 0
+    rows = (
+        db.query(Homework)
+        .join(Lesson, Homework.lesson_id == Lesson.id)
+        .options(joinedload(Homework.lesson).joinedload(Lesson.student))
+        .join(User, User.id == Lesson.tutor_id)
+        .filter(
+            Homework.due_date == tomorrow,
+            User.notify_homework_ready.is_(True),
+        )
+        .all()
+    )
+    for hw in rows:
+        lesson = hw.lesson
+        if not lesson:
+            continue
+        user = db.query(User).filter(User.id == lesson.tutor_id).first()
+        if not user:
+            continue
+        name = lesson.student.name if lesson.student else "ученик"
+        ref_key = f"hw_due:{hw.id}:{tomorrow.isoformat()}"
+        subject = "RepetCRM: дедлайн ДЗ завтра"
+        body = (
+            f"У {name} завтра срок сдачи ДЗ "
+            f"(урок {lesson.lesson_date.isoformat()}). "
+            f"Напомните ученику в Telegram / кабинете."
+        )
+        if notify_user(db, user, kind="homework_due", ref_key=ref_key, subject=subject, body=body):
+            sent += 1
+    return sent
+
+
 async def run_daily_reminders(ctx) -> dict:
     db = SessionLocal()
     try:
@@ -154,6 +189,7 @@ async def run_daily_reminders(ctx) -> dict:
         parent_tomorrow_n = _send_parent_lesson_tomorrow(db)
         parent_balance_n = _send_parent_low_balance(db)
         unpaid_n = _send_unpaid_reminders(db)
+        hw_due_n = _send_homework_due_reminders(db)
         db.commit()
         result = {
             "series_lessons_created": expanded,
@@ -161,6 +197,7 @@ async def run_daily_reminders(ctx) -> dict:
             "parent_lesson_tomorrow_sent": parent_tomorrow_n,
             "parent_low_balance_sent": parent_balance_n,
             "unpaid_sent": unpaid_n,
+            "homework_due_sent": hw_due_n,
         }
         logger.info("daily reminders: %s", result)
         return result

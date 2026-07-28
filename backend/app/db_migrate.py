@@ -19,7 +19,7 @@ from app.database import engine
 logger = logging.getLogger(__name__)
 
 _ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
-_HEAD_REVISION = "a1b2c3d4e5f6"
+_HEAD_REVISION = "b2c3d4e5f6a7"
 
 
 def _alembic_config() -> Config:
@@ -458,6 +458,9 @@ def _detect_legacy_revision(insp: Inspector) -> str:
         user_cols = {c["name"] for c in insp.get_columns("users")}
         if "booking_slug" in user_cols or insp.has_table("trial_bookings"):
             return "e2f3a4b5c6d7"
+
+    if insp.has_table("lesson_reschedule_requests"):
+        return "b2c3d4e5f6a7"
 
     if insp.has_table("homework_submissions"):
         hs_cols = {c["name"] for c in insp.get_columns("homework_submissions")}

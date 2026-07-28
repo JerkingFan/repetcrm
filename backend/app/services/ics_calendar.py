@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Iterable
+from typing import Callable, Iterable
 
 from app.models import Lesson
 
@@ -29,6 +29,7 @@ def build_ics(
     *,
     calendar_name: str,
     student_name: str | None = None,
+    meeting_url_for: Callable[[Lesson], str] | None = None,
 ) -> str:
     lines = [
         "BEGIN:VCALENDAR",
@@ -52,21 +53,29 @@ def build_ics(
             desc_parts.append(lesson.notes)
         if lesson.payment_amount:
             desc_parts.append(f"Оплата: {lesson.payment_amount} Br ({'оплачено' if lesson.is_paid else 'не оплачено'})")
+        meeting_url = ""
+        if meeting_url_for:
+            meeting_url = (meeting_url_for(lesson) or "").strip()
+        elif getattr(lesson, "meeting_url", None):
+            meeting_url = (lesson.meeting_url or "").strip()
+        if meeting_url:
+            desc_parts.append(f"Ссылка: {meeting_url}")
         description = _escape_ics(" · ".join(desc_parts))
 
-        lines.extend(
-            [
-                "BEGIN:VEVENT",
-                f"UID:{uid}",
-                f"DTSTAMP:{now}",
-                f"DTSTART:{start.strftime('%Y%m%dT%H%M%S')}",
-                f"DTEND:{end.strftime('%Y%m%dT%H%M%S')}",
-                f"SUMMARY:{_escape_ics(title)}",
-                f"DESCRIPTION:{description}",
-                "STATUS:CONFIRMED",
-                "END:VEVENT",
-            ]
-        )
+        event_lines = [
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTAMP:{now}",
+            f"DTSTART:{start.strftime('%Y%m%dT%H%M%S')}",
+            f"DTEND:{end.strftime('%Y%m%dT%H%M%S')}",
+            f"SUMMARY:{_escape_ics(title)}",
+            f"DESCRIPTION:{description}",
+        ]
+        if meeting_url:
+            event_lines.append(f"LOCATION:{_escape_ics(meeting_url)}")
+            event_lines.append(f"URL:{_escape_ics(meeting_url)}")
+        event_lines.extend(["STATUS:CONFIRMED", "END:VEVENT"])
+        lines.extend(event_lines)
 
     lines.append("END:VCALENDAR")
     return "\r\n".join(lines) + "\r\n"

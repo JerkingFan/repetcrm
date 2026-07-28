@@ -60,6 +60,7 @@ export type LessonListItem = {
   is_conducted?: boolean;
   status?: string;
   notes?: string;
+  meeting_url?: string;
   student_name?: string;
   homework_id?: number | null;
 };
@@ -105,6 +106,9 @@ export type NotificationSettings = {
   notify_unpaid: boolean;
   notify_homework_ready: boolean;
   telegram_chat_id: string;
+  contact_telegram?: string;
+  contact_url?: string;
+  hide_balance_in_portal?: boolean;
   smtp_configured: boolean;
   telegram_configured: boolean;
 };
@@ -125,6 +129,7 @@ export type DashboardExtended = {
     duration_minutes: number;
     is_paid: boolean;
     payment_amount: number;
+    meeting_url?: string;
   }>;
   debtors: Array<{
     student_id: number;
@@ -731,7 +736,11 @@ export const api = {
         subject: string;
         grade: string;
         balance: number;
+        show_balance?: boolean;
         tutor_name: string;
+        tutor_telegram?: string;
+        tutor_contact_url?: string;
+        tutor_telegram_url?: string;
       }>;
     },
     me: () =>
@@ -741,8 +750,28 @@ export const api = {
         subject: string;
         grade: string;
         balance: number;
+        show_balance?: boolean;
         tutor_name: string;
+        tutor_telegram?: string;
+        tutor_contact_url?: string;
+        tutor_telegram_url?: string;
       }>("/portal/me"),
+    progress: () =>
+      portalRequest<{
+        homework_total: number;
+        homework_submitted: number;
+        homework_reviewed: number;
+        homework_needs_revision: number;
+        streak_days: number;
+        avg_ai_score: number | null;
+        topics: string[];
+        recent_scores: Array<{
+          homework_id: number;
+          score: number;
+          verdict: string;
+          date: string;
+        }>;
+      }>("/portal/progress"),
     lessons: () =>
       portalRequest<
         Array<{
@@ -753,6 +782,12 @@ export const api = {
           status: string;
           is_conducted: boolean;
           notes: string;
+          meeting_url?: string;
+          board_id?: number | null;
+          board_url?: string;
+          board_title?: string;
+          can_request_reschedule?: boolean;
+          reschedule_status?: string;
         }>
       >("/portal/lessons"),
     homework: () =>
@@ -763,6 +798,7 @@ export const api = {
           lesson_date: string;
           preview: string;
           tasks_count?: number;
+          due_date?: string | null;
           has_submission: boolean;
           submission_status?: string;
           updated_at: string;
@@ -775,7 +811,11 @@ export const api = {
         lesson_date: string;
         homework_text: string;
         preview_html?: string;
+        due_date?: string | null;
         has_submission: boolean;
+        board_url?: string;
+        meeting_url?: string;
+        tutor_telegram_url?: string;
         submissions: Array<{
           id: number;
           original_filename: string;
@@ -805,6 +845,24 @@ export const api = {
       }
       return res.json();
     },
+    requestReschedule: (data: {
+      lesson_id: number;
+      message?: string;
+      preferred_date?: string | null;
+      preferred_time?: string;
+    }) =>
+      portalRequest<{
+        id: number;
+        lesson_id: number;
+        status: string;
+        message: string;
+        preferred_date?: string | null;
+        preferred_time?: string;
+        created_at: string;
+      }>("/portal/reschedule", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     calendarIcsUrl: () => `${getApiUrl()}/portal/calendar.ics`,
     createPaymentIntent: (amount: number, provider: "erip" | "card") =>
       portalRequest<{
@@ -821,6 +879,31 @@ export const api = {
       }),
     logout: () =>
       fetch(`${getApiUrl()}/portal/logout`, { method: "POST", credentials: "include" }),
+  },
+
+  reschedule: {
+    list: (status = "pending") =>
+      request<
+        Array<{
+          id: number;
+          lesson_id: number;
+          student_id: number;
+          student_name: string;
+          lesson_date: string;
+          lesson_time: string;
+          message: string;
+          preferred_date?: string | null;
+          preferred_time?: string;
+          status: string;
+          tutor_note: string;
+          created_at: string;
+        }>
+      >(`/reschedule-requests?status=${encodeURIComponent(status)}`),
+    resolve: (id: number, data: { status: "approved" | "rejected"; tutor_note?: string }) =>
+      request(`/reschedule-requests/${id}/resolve`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
   },
 
   parentPortal: {
@@ -992,11 +1075,19 @@ export const api = {
   },
 
   homework: {
-    update: (id: number, homework_text: string) =>
-      request(`/homework/${id}`, {
+    update: (
+      id: number,
+      homework_textOrData: string | { homework_text?: string; due_date?: string | null }
+    ) => {
+      const body =
+        typeof homework_textOrData === "string"
+          ? { homework_text: homework_textOrData }
+          : homework_textOrData;
+      return request(`/homework/${id}`, {
         method: "PUT",
-        body: JSON.stringify({ homework_text }),
-      }),
+        body: JSON.stringify(body),
+      });
+    },
     previewHtml: (id: number) => request<{ html: string }>(`/homework/${id}/preview`),
     submissions: (id: number) =>
       request<

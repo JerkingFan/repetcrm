@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.config import get_settings
 from app.database import SessionLocal
 from app.models import Homework, HomeworkSubmission, Lesson, Student
+from app.services.homework_output import homework_plain_preview, is_latex_document, _extract_task_bodies
 from app.services.openrouter_client import OpenRouterError, call_openrouter_vision, is_configured
 
 logger = logging.getLogger(__name__)
@@ -34,9 +35,27 @@ def verdict_label(verdict: str) -> str:
     return VERDICT_LABELS.get(verdict, verdict or "—")
 
 
-def _strip_html(text: str) -> str:
-    clean = re.sub(r"<[^>]+>", " ", text or "")
-    return " ".join(clean.split())
+def _assignment_for_prompt(homework_text: str) -> str:
+    """Читаемое задание без LaTeX-преамбулы — иначе модель «не узнаёт» задачи."""
+    text = (homework_text or "").strip()
+    if not text:
+        return "(текст задания недоступен)"
+
+    if is_latex_document(text):
+        tasks = [t for t in _extract_task_bodies(text) if t.strip()]
+        if tasks:
+            lines = [f"{i}. {re.sub(r'\s+', ' ', t).strip()}" for i, t in enumerate(tasks[:12], 1)]
+            return "Задачи:\n" + "\n".join(lines)
+
+    preview, _n = homework_plain_preview(text, max_len=2500)
+    if preview and "documentclass" not in preview.lower() and "usepackage" not in preview.lower():
+        return preview
+
+    # HTML → plain
+    clean = re.sub(r"<[^>]+>", "\n", text)
+    clean = re.sub(r"\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})?", " ", clean)
+    clean = " ".join(clean.split())
+    return clean[:2500] if clean else "(текст задания недоступен)"
 
 
 def _parse_ai_json(raw: str) -> dict:
@@ -44,6 +63,10 @@ def _parse_ai_json(raw: str) -> dict:
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if fence:
         text = fence.group(1).strip()
+    # иногда модель добавляет текст до/после JSON
+    brace = re.search(r"\{[\s\S]*\}", text)
+    if brace:
+        text = brace.group(0)
     data = json.loads(text)
     if not isinstance(data, dict):
         raise ValueError("AI response is not a JSON object")
@@ -59,6 +82,8 @@ def _normalize_verdict(value: str) -> str:
         "wrong": "incorrect",
         "right": "correct",
         "ok": "correct",
+        "illegible": "unclear",
+        "unreadable": "unclear",
     }
     v = aliases.get(v, v)
     return v if v in _VERDICTS else "unclear"
@@ -76,26 +101,31 @@ def _image_data_url(file_path: str, mime: str) -> str:
 
 
 def _build_prompt(*, homework_text: str, student: Student, comment: str) -> str:
-    assignment = _strip_html(homework_text)[:6000]
+    assignment = _assignment_for_prompt(homework_text)
     student_note = (comment or "").strip()[:500]
     parts = [
-        "Задание для ученика:",
-        assignment or "(текст задания недоступен)",
+        "Ниже — условия домашних задач (уже очищены от LaTeX-разметки).",
+        "На приложенном фото — рукописное или сфотографированное решение ученика.",
         "",
-        f"Ученик: {student.name}, предмет: {student.subject or '—'}, класс: {student.grade or '—'}.",
+        assignment,
+        "",
+        f"Ученик: {student.name}. Предмет: {student.subject or '—'}. Класс: {student.grade or '—'}.",
     ]
     if student_note:
         parts.extend(["", f"Комментарий ученика: {student_note}"])
     parts.extend(
         [
             "",
-            "На фото — решение ученика. Сравни с заданием и оцени правильность.",
-            "Ответь ТОЛЬКО валидным JSON без markdown:",
-            '{',
-            '  "verdict": "correct" | "partially_correct" | "incorrect" | "unclear",',
-            '  "score": 0-100,',
-            '  "feedback": "краткий комментарий ученику на русском (2-4 предложения)"',
-            "}",
+            "Правила оценки:",
+            "- Смотри на фото внимательно: цифры, формулы, шаги решения.",
+            "- Если текст на фото читается хотя бы частично — оценивай по существу, НЕ ставь unclear.",
+            "- unclear только если фото совсем чёрное/смазано/пустая страница и разобрать нельзя.",
+            "- Не пиши шаблонные фразы вроде «не соответствует заданию», если не уверен — укажи конкретно, какая задача и что не так.",
+            "- feedback: конкретно, доброжелательно, на русском, 2–4 предложения.",
+            "- score: 0–100 (для unclear поставь null).",
+            "",
+            "Ответь ТОЛЬКО JSON:",
+            '{"verdict":"correct"|"partially_correct"|"incorrect"|"unclear","score":0-100|null,"feedback":"..."}',
         ]
     )
     return "\n".join(parts)
@@ -161,9 +191,9 @@ async def review_submission_ai(submission_id: int) -> None:
         )
         image_url = _image_data_url(full_path, mime)
         system = (
-            "Ты — помощник репетитора. Оцениваешь решения учеников по фото. "
-            "Будь доброжелателен, но честен. Если фото нечитаемо — verdict=unclear. "
-            "Отвечай только JSON."
+            "Ты — опытный репетитор. Проверяешь фото решения ученика. "
+            "Это реальная проверка, не заглушка: опирайся на то, что видно на фото и на список задач. "
+            "Будь конкретным. Отвечай только JSON."
         )
 
         raw = await call_openrouter_vision(
@@ -175,11 +205,23 @@ async def review_submission_ai(submission_id: int) -> None:
         verdict = _normalize_verdict(str(data.get("verdict", "")))
         score_raw = data.get("score")
         score: int | None
-        try:
-            score = max(0, min(100, int(score_raw)))
-        except (TypeError, ValueError):
+        if score_raw is None or (isinstance(score_raw, str) and score_raw.strip().lower() in ("", "null", "none")):
             score = None
+        else:
+            try:
+                score = max(0, min(100, int(float(score_raw))))
+            except (TypeError, ValueError):
+                score = None
+        # unclear + 0% выглядит как заглушка — убираем процент
+        if verdict == "unclear":
+            score = None
+
         feedback = str(data.get("feedback", "") or "").strip()[:2000]
+        if verdict == "unclear" and not feedback:
+            feedback = (
+                "Не удалось уверенно разобрать решение на фото. "
+                "Попробуй переснять при хорошем свете, без бликов, или дождись проверки репетитора."
+            )
 
         sub.ai_review_status = "done"
         sub.ai_verdict = verdict

@@ -56,6 +56,14 @@ def expand_series(db: Session, series: LessonSeries, *, through: date | None = N
     }
 
     created = 0
+    template = (
+        db.query(Lesson)
+        .filter(Lesson.series_id == series.id)
+        .order_by(Lesson.lesson_date.desc())
+        .first()
+    )
+    series_meeting_url = (template.meeting_url if template else "") or ""
+
     for lesson_date in dates:
         if lesson_date in existing:
             continue
@@ -78,6 +86,7 @@ def expand_series(db: Session, series: LessonSeries, *, through: date | None = N
                 duration_minutes=series.duration_minutes,
                 payment_amount=series.payment_amount,
                 notes=series.notes,
+                meeting_url=series_meeting_url,
             )
         )
         created += 1

@@ -18,6 +18,7 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 import AnalyticsSection from "@/components/AnalyticsSection";
 import TrialFunnelSection from "@/components/TrialFunnelSection";
 import PendingReceiptsSection from "@/components/PendingReceiptsSection";
+import RescheduleRequestsSection from "@/components/RescheduleRequestsSection";
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardExtended | null>(null);
@@ -102,15 +103,26 @@ export default function DashboardPage() {
                     href={`/lessons/${l.id}`}
                     className="flex justify-between gap-3 p-3 rounded-xl hover:bg-slate-50 border border-transparent hover:border-slate-100"
                   >
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-medium">{l.student_name}</p>
                       <p className="text-sm text-slate-500">
                         {new Date(l.lesson_date).toLocaleDateString("ru-RU")} ·{" "}
                         {formatLessonTime(l.lesson_time)} · {l.duration_minutes} мин
                       </p>
+                      {l.meeting_url && (
+                        <a
+                          href={l.meeting_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-xs font-semibold text-brand-green hover:underline mt-0.5 inline-block"
+                        >
+                          Войти в урок →
+                        </a>
+                      )}
                     </div>
                     <span
-                      className={`text-xs font-medium px-2 py-1 rounded-lg h-fit ${
+                      className={`text-xs font-medium px-2 py-1 rounded-lg h-fit shrink-0 ${
                         l.is_paid ? "bg-emerald-50 text-brand-green" : "bg-amber-50 text-amber-700"
                       }`}
                     >
@@ -207,6 +219,8 @@ export default function DashboardPage() {
       </div>
 
       <TrialFunnelSection data={data} onRefresh={reload} />
+
+      <RescheduleRequestsSection />
 
       <PendingReceiptsSection receipts={data.pending_payment_receipts} onRefresh={reload} />
 

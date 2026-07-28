@@ -53,7 +53,7 @@ export default function StudentPortalPanel({ studentId }: { studentId: number })
       <div className="p-6 rounded-2xl bg-white border shadow-sm space-y-3">
         <h2 className="font-semibold text-brand-blue">Кабинет ученика</h2>
         <p className="text-sm text-slate-500">
-          Персональная ссылка: расписание, ДЗ, фото решений с AI-проверкой, баланс
+          Персональная ссылка: расписание, «Войти в урок», доски, ДЗ с AI-проверкой, прогресс
         </p>
         <input readOnly value={portalUrl} className="w-full px-3 py-2 rounded-xl border text-sm" />
         <div className="flex flex-wrap gap-2">
@@ -64,11 +64,23 @@ export default function StudentPortalPanel({ studentId }: { studentId: number })
           >
             Копировать ссылку
           </button>
+          {portalUrl && (
+            <a
+              href={portalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 rounded-xl border border-brand-blue text-brand-blue text-sm font-medium"
+            >
+              Открыть кабинет
+            </a>
+          )}
           <button
             type="button"
             onClick={() =>
               api.students.regeneratePortalLink(studentId).then((r) => {
                 setPortalUrl(r.portal_url);
+                setPortalToken(r.portal_token);
+                setCalendarFeedUrl(api.calendar.feedIcsUrl(r.portal_token));
                 toast("Новая ссылка создана", "success");
               })
             }

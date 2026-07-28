@@ -9,10 +9,6 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
 from app.database import get_db
-from app.dependencies import get_current_user
-from app.models import Lesson, LessonStatus, Student, User
-from app.services.ics_calendar import build_ics
-from app.services.portal_token import student_by_any_portal_token
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
@@ -39,7 +35,11 @@ def tutor_calendar_ics(
         .order_by(Lesson.lesson_date.asc(), Lesson.lesson_time.asc())
         .all()
     )
-    body = build_ics(lessons, calendar_name=f"RepetCRM — {user.name or 'Репетитор'}")
+    body = build_ics(
+        lessons,
+        calendar_name=f"RepetCRM — {user.name or 'Репетитор'}",
+        meeting_url_for=lambda l: resolve_meeting_url(l, user),
+    )
     return Response(
         content=body.encode("utf-8"),
         media_type="text/calendar; charset=utf-8",
@@ -72,7 +72,12 @@ def student_calendar_ics_for_tutor(
         .order_by(Lesson.lesson_date.asc())
         .all()
     )
-    body = build_ics(lessons, calendar_name=f"Занятия — {student.name}", student_name=student.name)
+    body = build_ics(
+        lessons,
+        calendar_name=f"Занятия — {student.name}",
+        student_name=student.name,
+        meeting_url_for=lambda l: resolve_meeting_url(l, user),
+    )
     return Response(
         content=body.encode("utf-8"),
         media_type="text/calendar; charset=utf-8",
@@ -100,5 +105,11 @@ def calendar_feed_by_portal_token(
         .order_by(Lesson.lesson_date.asc())
         .all()
     )
-    body = build_ics(lessons, calendar_name=f"Занятия — {student.name}", student_name=student.name)
+    tutor = db.query(User).filter(User.id == student.tutor_id).first()
+    body = build_ics(
+        lessons,
+        calendar_name=f"Занятия — {student.name}",
+        student_name=student.name,
+        meeting_url_for=lambda l: resolve_meeting_url(l, tutor),
+    )
     return Response(content=body.encode("utf-8"), media_type="text/calendar; charset=utf-8")

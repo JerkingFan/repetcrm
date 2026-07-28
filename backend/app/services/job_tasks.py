@@ -16,6 +16,7 @@ from app.services.homework_prefs import apply_prefs_to_checklist, parse_homework
 from app.services import job_store
 from app.services.job_types import Job
 from app.services.pdf import generate_homework_pdf, invalidate_homework_pdf
+from app.services.portal_student import default_homework_due_date
 from app.services.smart_homework import generate_smart_homework_latex
 
 logger = logging.getLogger(__name__)
@@ -152,6 +153,8 @@ async def run_generate_homework(lesson_id: int, tutor_id: int) -> dict:
         else:
             hw = Homework(lesson_id=lesson_id, homework_text=html)
             db.add(hw)
+        if not hw.due_date:
+            hw.due_date = default_homework_due_date(db, lesson)
         db.commit()
         db.refresh(hw)
         invalidate_homework_pdf(hw.id)
