@@ -53,17 +53,15 @@ export default function PortalProgress({ data }: { data: Progress | null }) {
 
   return (
     <>
-      <PortalCard className="overflow-hidden">
-        <div
-          className={`px-5 py-5 text-white ${
-            streak > 0
-              ? "bg-gradient-to-br from-orange-500 via-amber-500 to-rose-500"
-              : "bg-gradient-to-br from-slate-600 to-slate-800"
-          }`}
-        >
-          <p className="text-[11px] uppercase tracking-wide text-white/75 font-semibold">Серия</p>
-          <div className="flex items-end gap-3 mt-1">
-            <p className={`text-5xl font-black leading-none ${streak > 0 ? "streak-pop" : ""}`}>
+      <PortalCard className="overflow-hidden portal-rise">
+        <div className="px-5 py-6 text-white relative" style={{ background: "var(--portal-hero)" }}>
+          <div className="portal-hero-shine" aria-hidden />
+          <p className="relative text-[11px] uppercase tracking-[0.18em] text-white/70 font-bold">Серия</p>
+          <div className="relative flex items-end gap-3 mt-1">
+            <p
+              className={`text-6xl font-black leading-none tracking-tight ${streak > 0 ? "streak-pop" : ""}`}
+              style={{ fontFamily: "var(--font-portal-display), sans-serif" }}
+            >
               {streak}
             </p>
             <div className="pb-1">
@@ -80,17 +78,17 @@ export default function PortalProgress({ data }: { data: Progress | null }) {
                 {streak === 0
                   ? "Сдай ДЗ сегодня — начни серию"
                   : atRisk
-                    ? "Не сломай серию завтра 🔥"
-                    : "Красава. Держи темп"}
+                    ? "Сегодня ещё не закрыто — стрик под угрозой"
+                    : "Держи ритм"}
               </p>
             </div>
           </div>
           {streak > 0 && (
-            <div className="mt-4 flex gap-1.5">
+            <div className="relative mt-4 flex gap-1.5">
               {Array.from({ length: Math.min(streak, 14) }).map((_, i) => (
                 <span
                   key={i}
-                  className="h-2 flex-1 rounded-full bg-white/90 streak-dot"
+                  className="h-2 flex-1 rounded-md bg-white/90 streak-dot"
                   style={{ animationDelay: `${i * 40}ms` }}
                 />
               ))}
@@ -102,17 +100,26 @@ export default function PortalProgress({ data }: { data: Progress | null }) {
       <div className="grid grid-cols-2 gap-3">
         <PortalCard className="p-4 portal-rise">
           <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">Сдано ДЗ</p>
-          <p className="text-2xl font-bold text-brand-blue mt-1">
+          <p
+            className="text-2xl font-bold mt-1"
+            style={{ color: "var(--portal-accent)", fontFamily: "var(--font-portal-display), sans-serif" }}
+          >
             {data.homework_submitted}
             <span className="text-base font-medium text-slate-400">/{data.homework_total}</span>
           </p>
           <div className="mt-2 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-            <div className="h-full bg-brand-green rounded-full transition-all" style={{ width: `${donePct}%` }} />
+            <div
+              className="h-full rounded-full transition-all"
+              style={{ width: `${donePct}%`, background: "var(--portal-signal)" }}
+            />
           </div>
         </PortalCard>
         <PortalCard className="p-4 portal-rise">
           <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">Средняя AI</p>
-          <p className="text-2xl font-bold text-brand-blue mt-1">
+          <p
+            className="text-2xl font-bold mt-1"
+            style={{ color: "var(--portal-accent)", fontFamily: "var(--font-portal-display), sans-serif" }}
+          >
             {data.avg_ai_score != null ? `${Math.round(data.avg_ai_score)}%` : "—"}
           </p>
           <p className="text-xs text-slate-500 mt-1">по проверенным</p>
@@ -127,7 +134,7 @@ export default function PortalProgress({ data }: { data: Progress | null }) {
       )}
 
       <PortalCard className="p-5">
-        <h3 className="font-semibold text-slate-800 mb-1">Heatmap тем</h3>
+        <h3 className="portal-section-title mb-1">Heatmap тем</h3>
         <p className="text-xs text-slate-500 mb-3">Где стабильно и где проседает (по оценкам AI)</p>
         {heat.length === 0 ? (
           <p className="text-sm text-slate-500">Сдай пару ДЗ с фото — появится карта тем</p>

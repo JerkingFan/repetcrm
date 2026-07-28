@@ -20,24 +20,23 @@ export default function PortalShell({
 
   return (
     <div className="min-h-screen portal-shell" style={vars}>
-      <header className="sticky top-0 z-30 border-b border-white/60 bg-white/80 backdrop-blur-md">
+      <div className="portal-atmosphere" aria-hidden>
+        <span className="portal-orb portal-orb-a" />
+        <span className="portal-orb portal-orb-b" />
+        <span className="portal-grain" />
+      </div>
+
+      <header className="sticky top-0 z-30 portal-header">
         <div className="max-w-lg mx-auto px-4 py-3.5 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p
-              className="text-[11px] font-semibold tracking-wide uppercase"
-              style={{ color: "var(--portal-accent-soft)" }}
-            >
-              RepetCRM · кабинет
-            </p>
-            <h1 className="text-xl font-bold truncate" style={{ color: "var(--portal-accent)" }}>
-              {title}
-            </h1>
-            {subtitle && <p className="text-sm text-slate-500 mt-0.5 truncate">{subtitle}</p>}
+            <p className="portal-kicker">RepetCRM · кабинет</p>
+            <h1 className="portal-title truncate">{title}</h1>
+            {subtitle && <p className="portal-subtitle truncate">{subtitle}</p>}
           </div>
           {right}
         </div>
       </header>
-      <main className="max-w-lg mx-auto px-4 pt-5 pb-28 space-y-5">{children}</main>
+      <main className="relative z-10 max-w-lg mx-auto px-4 pt-5 pb-28 space-y-4">{children}</main>
     </div>
   );
 }
@@ -45,14 +44,14 @@ export default function PortalShell({
 export function PortalCard({
   children,
   className = "",
+  style,
 }: {
   children: ReactNode;
   className?: string;
+  style?: CSSProperties;
 }) {
   return (
-    <section
-      className={`rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/40 ${className}`}
-    >
+    <section className={`portal-card ${className}`} style={style}>
       {children}
     </section>
   );
@@ -60,8 +59,8 @@ export function PortalCard({
 
 export function PortalEmpty({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div className="py-10 px-4 text-center">
-      <div className="mx-auto w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
+    <div className="py-12 px-4 text-center">
+      <div className="mx-auto w-14 h-14 rounded-2xl bg-[var(--portal-accent)]/8 flex items-center justify-center text-[var(--portal-accent)] mb-3">
         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path
             strokeLinecap="round"
@@ -70,8 +69,10 @@ export function PortalEmpty({ title, hint }: { title: string; hint?: string }) {
           />
         </svg>
       </div>
-      <p className="font-medium text-slate-700">{title}</p>
-      {hint && <p className="text-sm text-slate-500 mt-1">{hint}</p>}
+      <p className="font-semibold text-slate-800" style={{ fontFamily: "var(--font-portal-display), sans-serif" }}>
+        {title}
+      </p>
+      {hint && <p className="text-sm text-slate-500 mt-1.5 leading-relaxed">{hint}</p>}
     </div>
   );
 }

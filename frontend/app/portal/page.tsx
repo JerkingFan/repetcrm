@@ -19,15 +19,15 @@ import { PortalHome, PortalSchedule } from "@/components/portal/PortalSections";
 
 function InstallHint({ onDismiss }: { onDismiss: () => void }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-2">
+    <div className="portal-card p-4 space-y-2 portal-rise">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="font-semibold text-slate-800 text-sm">Сохранить на экран</p>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="portal-section-title text-sm">Сохранить на экран</p>
+          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
             В Safari/Chrome: «Поделиться» → «На экран „Домой“» — кабинет откроется как приложение.
           </p>
         </div>
-        <button type="button" onClick={onDismiss} className="text-slate-400 text-sm shrink-0">
+        <button type="button" onClick={onDismiss} className="text-slate-400 text-sm shrink-0 font-medium">
           Закрыть
         </button>
       </div>
@@ -204,7 +204,7 @@ function PortalContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="portal-gate">
         <LoadingSpinner label="Вход в кабинет…" />
       </div>
     );
@@ -212,17 +212,17 @@ function PortalContent() {
 
   if (!student) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-8 bg-[radial-gradient(ellipse_at_top,_#e8eefc_0%,_#f8fafc_50%)]">
-        <div className="max-w-sm w-full text-center space-y-4 rounded-2xl border bg-white p-8 shadow-sm">
-          <p className="text-[11px] font-semibold tracking-wide uppercase text-brand-blue/70">
+      <div className="portal-gate">
+        <div className="portal-gate-card space-y-4">
+          <p className="text-[11px] font-bold tracking-[0.2em] uppercase text-teal-800/70">
             RepetCRM
           </p>
-          <h1 className="text-2xl font-bold text-brand-blue">Кабинет ученика</h1>
+          <h1 className="portal-gate-brand">Кабинет ученика</h1>
           {error ? (
             <Alert message={error} />
           ) : (
-            <p className="text-slate-500 text-sm">
-              Откройте персональную ссылку от репетитора — вход без пароля.
+            <p className="text-slate-500 text-sm leading-relaxed">
+              Открой персональную ссылку от репетитора — вход без пароля.
             </p>
           )}
         </div>
@@ -260,7 +260,12 @@ function PortalContent() {
           <button
             type="button"
             onClick={logout}
-            className="text-xs font-semibold text-slate-500 hover:text-rose-600 px-2 py-1.5 rounded-lg border border-slate-200 bg-white"
+            className="text-xs font-semibold px-2.5 py-1.5 rounded-xl border transition"
+            style={{
+              color: "var(--portal-accent-soft)",
+              borderColor: "var(--portal-card-border)",
+              background: "var(--portal-card)",
+            }}
           >
             Выйти
           </button>
@@ -281,12 +286,6 @@ function PortalContent() {
 
       {tab === "home" && (
         <>
-          <PortalDailyChallenge
-            onSolved={() => {
-              api.portal.progress().then(setProgress).catch(() => {});
-              setSuccess("Стрик продолжается — задание дня засчитано");
-            }}
-          />
           <PortalHome
             student={student}
             nextLesson={nextLesson}
@@ -295,6 +294,12 @@ function PortalContent() {
             onOpenTab={setTab}
             onOpenHomework={openHomework}
             onOpenFocus={() => setFocusOpen(true)}
+          />
+          <PortalDailyChallenge
+            onSolved={() => {
+              api.portal.progress().then(setProgress).catch(() => {});
+              setSuccess("Стрик продолжается — задание дня засчитано");
+            }}
           />
         </>
       )}

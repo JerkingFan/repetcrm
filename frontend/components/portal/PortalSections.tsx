@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { formatLessonTime } from "@/lib/calendar";
 import { formatMoney } from "@/lib/currency";
 import { avatarEmoji } from "@/lib/portalTheme";
@@ -69,115 +70,108 @@ export function PortalHome({
   onOpenFocus?: () => void;
 }) {
   const showBalance = student.show_balance === true;
+  const display = student.display_name || student.name;
+  const meta = [student.subject, student.grade].filter(Boolean).join(" · ");
 
   return (
     <>
-      <PortalCard className="overflow-hidden portal-rise">
-        <div className="px-5 py-5 text-white" style={{ background: "var(--portal-hero)" }}>
-          <div className="flex items-start gap-3">
-            <span className="text-3xl leading-none drop-shadow-sm" aria-hidden>
-              {avatarEmoji(student.portal_avatar)}
-            </span>
+      {/* Hero — one composition */}
+      <section className="portal-hero portal-rise overflow-hidden relative">
+        <div className="portal-hero-shine" aria-hidden />
+        <div className="relative z-10 px-5 pt-6 pb-5 text-white">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-sm text-white/75">Привет,</p>
-              <h2 className="text-2xl font-bold tracking-tight truncate">
-                {student.display_name || student.name}
-              </h2>
-              <p className="text-sm text-white/80 mt-1">
-                {[student.subject, student.grade].filter(Boolean).join(" · ")}
+              <p className="text-[11px] font-semibold tracking-[0.22em] uppercase text-white/55">
+                Привет
+              </p>
+              <h2 className="portal-hero-name mt-1 truncate">{display}</h2>
+              <p className="text-sm text-white/70 mt-1.5 truncate">
+                {meta}
                 {student.tutor_name ? ` · ${student.tutor_name}` : ""}
               </p>
             </div>
-          </div>
-          {showBalance && (
-            <div className="mt-4">
-              <p className="text-[11px] uppercase tracking-wide text-white/60">Баланс</p>
-              <p className="text-lg font-semibold">{formatMoney(student.balance)}</p>
+            <div className="portal-avatar-ring shrink-0" aria-hidden>
+              <span className="text-2xl leading-none">{avatarEmoji(student.portal_avatar)}</span>
             </div>
-          )}
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-end gap-3">
+            {(streakDays ?? 0) > 0 && (
+              <button
+                type="button"
+                onClick={() => onOpenTab("progress")}
+                className="portal-streak-chip"
+              >
+                <span className="text-lg font-black tabular-nums leading-none">{streakDays}</span>
+                <span className="text-[11px] font-semibold leading-tight opacity-90">
+                  {streakDays === 1 ? "день" : "серия"}
+                </span>
+              </button>
+            )}
+            {showBalance && (
+              <div className="ml-auto text-right">
+                <p className="text-[10px] uppercase tracking-wider text-white/50">Баланс</p>
+                <p className="text-base font-semibold tabular-nums">{formatMoney(student.balance)}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-2.5">
+            <button type="button" onClick={() => onOpenTab("homework")} className="portal-hero-cta">
+              <span className="text-2xl font-black tabular-nums leading-none">
+                {pendingHomework.length}
+              </span>
+              <span className="text-[11px] font-semibold text-white/75 mt-1">ДЗ ждут</span>
+            </button>
+            <button type="button" onClick={() => onOpenFocus?.()} className="portal-hero-cta portal-hero-cta-focus">
+              <span className="text-sm font-bold tracking-tight">Фокус</span>
+              <span className="text-[11px] font-medium text-white/70 mt-1">Lo-fi · решить</span>
+            </button>
+          </div>
         </div>
-      </PortalCard>
-
-      {(streakDays ?? 0) > 0 && (
-        <button
-          type="button"
-          onClick={() => onOpenTab("progress")}
-          className="w-full text-left rounded-2xl border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 px-4 py-3"
-        >
-          <p className="text-sm font-bold text-orange-900">
-            Серия {streakDays} {streakDays === 1 ? "день" : "дней"} 🔥
-          </p>
-          <p className="text-xs text-orange-800/80 mt-0.5">Не сломай — открой прогресс</p>
-        </button>
-      )}
-
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={() => onOpenTab("homework")}
-          className="rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-sm hover:border-brand-green/40 transition"
-        >
-          <p className="text-2xl font-bold text-brand-blue">{pendingHomework.length}</p>
-          <p className="text-sm text-slate-600 mt-0.5">ДЗ ждут сдачи</p>
-        </button>
-        <button
-          type="button"
-          onClick={() => onOpenFocus?.()}
-          className="rounded-2xl border border-slate-200/80 bg-slate-900 p-4 text-left shadow-sm text-white"
-        >
-          <p className="text-sm font-semibold">Фокус</p>
-          <p className="text-sm text-white/70 mt-1">Lo-fi + задачи</p>
-        </button>
-      </div>
+      </section>
 
       {student.tutor_telegram_url && (
         <a
           href={student.tutor_telegram_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center justify-between gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-900"
+          className="portal-link-row portal-rise"
+          style={{ animationDelay: "60ms" }}
         >
           <span>Написать репетитору</span>
-          <span aria-hidden>→</span>
+          <span className="portal-link-arrow" aria-hidden>
+            →
+          </span>
         </a>
       )}
 
-      <PortalCard className="p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-slate-800">Ближайший урок</h3>
-          <button
-            type="button"
-            onClick={() => onOpenTab("schedule")}
-            className="text-xs font-medium text-brand-blue"
-          >
+      <PortalCard className="p-5 portal-rise" style={{ animationDelay: "90ms" } as CSSProperties}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="portal-section-title">Ближайший урок</h3>
+          <button type="button" onClick={() => onOpenTab("schedule")} className="portal-text-link">
             Все →
           </button>
         </div>
         {nextLesson ? (
-          <div className="space-y-3">
-            <div className="flex gap-3 items-center">
-              <div
-                className={`w-14 shrink-0 rounded-xl text-center py-2 ${
-                  isToday(nextLesson.lesson_date)
-                    ? "bg-brand-green/15 text-emerald-800"
-                    : "bg-slate-100 text-slate-700"
-                }`}
-              >
-                <p className="text-[10px] font-semibold uppercase">
+          <div className="space-y-3.5">
+            <div className="flex gap-3.5 items-center">
+              <div className={`portal-date-block ${isToday(nextLesson.lesson_date) ? "is-today" : ""}`}>
+                <p className="text-[10px] font-bold uppercase tracking-wide opacity-70">
                   {formatRuWeekday(nextLesson.lesson_date)}
                 </p>
-                <p className="text-lg font-bold leading-tight">
+                <p className="text-2xl font-black leading-none tabular-nums">
                   {new Date(nextLesson.lesson_date).getDate()}
                 </p>
               </div>
               <div className="min-w-0">
-                <p className="font-medium text-slate-800">
+                <p className="font-semibold text-slate-900">
                   {formatRuDate(nextLesson.lesson_date)}
                   {isToday(nextLesson.lesson_date) && (
-                    <span className="ml-2 text-xs font-semibold text-brand-green">сегодня</span>
+                    <span className="ml-2 text-[11px] font-bold text-[var(--portal-accent)]">сегодня</span>
                   )}
                 </p>
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-slate-500 mt-0.5">
                   {formatLessonTime(nextLesson.lesson_time)} · {nextLesson.duration_minutes} мин
                 </p>
               </div>
@@ -188,19 +182,19 @@ export function PortalHome({
                   href={nextLesson.meeting_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center px-4 py-2.5 rounded-xl bg-brand-green text-white text-sm font-semibold"
+                  className="portal-btn-primary"
                 >
                   Войти в урок
                 </a>
               ) : (
-                <p className="text-xs text-slate-500">Ссылка на урок появится здесь, когда репетитор её добавит</p>
+                <p className="text-xs text-slate-500">Ссылка появится, когда репетитор её добавит</p>
               )}
               {nextLesson.board_url && (
                 <a
                   href={nextLesson.board_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700"
+                  className="portal-btn-ghost"
                 >
                   Доска
                 </a>
@@ -212,37 +206,29 @@ export function PortalHome({
         )}
       </PortalCard>
 
-      <PortalCard className="p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-slate-800">Домашние задания</h3>
-          <button
-            type="button"
-            onClick={() => onOpenTab("homework")}
-            className="text-xs font-medium text-brand-blue"
-          >
+      <PortalCard className="p-5 portal-rise" style={{ animationDelay: "130ms" } as CSSProperties}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="portal-section-title">Домашние задания</h3>
+          <button type="button" onClick={() => onOpenTab("homework")} className="portal-text-link">
             Все →
           </button>
         </div>
         {pendingHomework.length === 0 ? (
-          <p className="text-sm text-slate-500">Все сдано — отличная работа!</p>
+          <p className="text-sm text-slate-500">Все сдано — отличная работа</p>
         ) : (
           <ul className="space-y-2">
             {pendingHomework.slice(0, 3).map((h) => {
               const due = homeworkDueLabel(h.due_date, h.lesson_date);
               return (
                 <li key={h.id}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenHomework(h.id)}
-                    className="w-full text-left p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition"
-                  >
+                  <button type="button" onClick={() => onOpenHomework(h.id)} className="portal-hw-row">
                     <div className="flex justify-between gap-2 items-center">
-                      <span className="text-sm font-medium text-slate-800">
+                      <span className="text-sm font-semibold text-slate-900">
                         {formatRuDate(h.lesson_date)}
                         {due?.urgent && (
                           <span
-                            className={`ml-2 text-[10px] font-semibold uppercase ${
-                              due.overdue ? "text-rose-700" : "text-amber-700"
+                            className={`ml-2 text-[10px] font-bold uppercase ${
+                              due.overdue ? "text-rose-600" : "text-amber-700"
                             }`}
                           >
                             {due.text}
@@ -250,7 +236,7 @@ export function PortalHome({
                         )}
                       </span>
                       <span
-                        className={`text-[11px] font-medium px-2 py-0.5 rounded-lg ${submissionChipClass(
+                        className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${submissionChipClass(
                           h.submission_status || "not_submitted"
                         )}`}
                       >
@@ -259,9 +245,11 @@ export function PortalHome({
                       </span>
                     </div>
                     {h.preview && (
-                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">{h.preview}</p>
+                      <p className="text-xs text-slate-500 mt-1.5 line-clamp-2 leading-relaxed">
+                        {h.preview}
+                      </p>
                     )}
-                    <p className="text-[11px] font-semibold text-brand-blue mt-1.5">Открыть →</p>
+                    <p className="text-[11px] font-bold text-[var(--portal-accent)] mt-2">Открыть →</p>
                   </button>
                 </li>
               );
@@ -287,48 +275,47 @@ export function PortalSchedule({
 
   return (
     <>
-      <PortalCard className="p-4 flex items-center justify-between gap-3">
+      <PortalCard className="p-4 flex items-center justify-between gap-3 portal-rise">
         <div>
-          <p className="font-medium text-slate-800">Календарь</p>
-          <p className="text-xs text-slate-500">Добавить в телефон / Google</p>
+          <p className="portal-section-title">Календарь</p>
+          <p className="text-xs text-slate-500 mt-0.5">Добавить в телефон / Google</p>
         </div>
-        <a
-          href={calendarUrl}
-          className="px-3 py-2 rounded-xl bg-brand-blue text-white text-sm font-medium shrink-0"
-        >
+        <a href={calendarUrl} className="portal-btn-primary shrink-0 !py-2 !px-3 text-sm">
           .ics
         </a>
       </PortalCard>
 
-      <PortalCard>
+      <PortalCard className="portal-rise" style={{ animationDelay: "60ms" } as CSSProperties}>
         <div className="px-5 pt-4 pb-2">
-          <h3 className="font-semibold text-slate-800">Предстоящие</h3>
+          <h3 className="portal-section-title">Предстоящие</h3>
         </div>
         {upcoming.length === 0 ? (
           <PortalEmpty title="Нет предстоящих уроков" hint="Репетитор назначит занятие" />
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-slate-100/80">
             {upcoming.map((l) => (
               <li key={l.id} className="px-5 py-3.5 space-y-2.5">
                 <div className="flex gap-3 items-center">
-                  <div
-                    className={`w-12 shrink-0 rounded-xl text-center py-1.5 ${
-                      isToday(l.lesson_date) ? "bg-emerald-50 text-emerald-800" : "bg-slate-50 text-slate-700"
-                    }`}
-                  >
-                    <p className="text-[10px] font-semibold uppercase">{formatRuWeekday(l.lesson_date)}</p>
-                    <p className="text-base font-bold leading-tight">{new Date(l.lesson_date).getDate()}</p>
+                  <div className={`portal-date-block !w-12 ${isToday(l.lesson_date) ? "is-today" : ""}`}>
+                    <p className="text-[10px] font-bold uppercase opacity-70">
+                      {formatRuWeekday(l.lesson_date)}
+                    </p>
+                    <p className="text-lg font-black leading-none tabular-nums">
+                      {new Date(l.lesson_date).getDate()}
+                    </p>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-800">{formatRuDate(l.lesson_date)}</p>
+                    <p className="text-sm font-semibold text-slate-900">{formatRuDate(l.lesson_date)}</p>
                     <p className="text-sm text-slate-500">
                       {formatLessonTime(l.lesson_time)} · {l.duration_minutes} мин
                     </p>
                     {l.reschedule_status === "pending" && (
-                      <p className="text-[11px] text-amber-700 font-medium mt-0.5">Запрос на перенос отправлен</p>
+                      <p className="text-[11px] text-amber-700 font-semibold mt-0.5">
+                        Запрос на перенос отправлен
+                      </p>
                     )}
                     {l.reschedule_status === "approved" && (
-                      <p className="text-[11px] text-emerald-700 font-medium mt-0.5">Перенос согласован</p>
+                      <p className="text-[11px] text-emerald-700 font-semibold mt-0.5">Перенос согласован</p>
                     )}
                     {l.reschedule_status === "rejected" && (
                       <p className="text-[11px] text-slate-500 mt-0.5">Перенос отклонён</p>
@@ -341,7 +328,7 @@ export function PortalSchedule({
                       href={l.meeting_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-3 py-2 rounded-xl bg-brand-green text-white text-xs font-semibold"
+                      className="portal-btn-primary !text-xs !py-2 !px-3"
                     >
                       Войти в урок
                     </a>
@@ -351,7 +338,7 @@ export function PortalSchedule({
                       href={l.board_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700"
+                      className="portal-btn-ghost !text-xs !py-2 !px-3"
                     >
                       {l.board_title || "Доска"}
                     </a>
@@ -360,7 +347,7 @@ export function PortalSchedule({
                     <button
                       type="button"
                       onClick={() => onRequestReschedule(l)}
-                      className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600"
+                      className="portal-btn-ghost !text-xs !py-2 !px-3"
                     >
                       Перенести
                     </button>
@@ -373,13 +360,16 @@ export function PortalSchedule({
       </PortalCard>
 
       {past.length > 0 && (
-        <PortalCard>
+        <PortalCard className="portal-rise" style={{ animationDelay: "100ms" } as CSSProperties}>
           <div className="px-5 pt-4 pb-2">
-            <h3 className="font-semibold text-slate-500">Прошедшие</h3>
+            <h3 className="portal-section-title text-slate-500">Прошедшие</h3>
           </div>
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-slate-100/80">
             {past.slice(0, 8).map((l) => (
-              <li key={l.id} className="px-5 py-3 flex justify-between items-center gap-2 text-sm text-slate-500">
+              <li
+                key={l.id}
+                className="px-5 py-3 flex justify-between items-center gap-2 text-sm text-slate-500"
+              >
                 <span>{formatRuDate(l.lesson_date)}</span>
                 <span className="flex items-center gap-2">
                   <span>{formatLessonTime(l.lesson_time)}</span>
@@ -388,7 +378,7 @@ export function PortalSchedule({
                       href={l.board_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs font-semibold text-brand-blue"
+                      className="text-xs font-bold text-[var(--portal-accent)]"
                     >
                       Доска
                     </a>

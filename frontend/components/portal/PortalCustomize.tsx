@@ -57,7 +57,12 @@ export default function PortalCustomize({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-xs font-semibold text-slate-500 hover:text-brand-blue px-2 py-1.5 rounded-lg border border-slate-200 bg-white"
+        className="text-xs font-semibold px-2.5 py-1.5 rounded-xl border transition hover:bg-white/90"
+        style={{
+          color: "var(--portal-accent)",
+          borderColor: "var(--portal-card-border)",
+          background: "var(--portal-card)",
+        }}
       >
         Оформить
       </button>

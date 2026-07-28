@@ -18,15 +18,11 @@ export default function PortalDailyChallenge({
   const [error, setError] = useState("");
   const [celebrate, setCelebrate] = useState(false);
 
-  const load = () => {
+  useEffect(() => {
     api.portal
       .daily()
       .then(setData)
       .catch(() => setData(null));
-  };
-
-  useEffect(() => {
-    load();
   }, []);
 
   if (!data) return null;
@@ -34,11 +30,9 @@ export default function PortalDailyChallenge({
   if (!data.available || !data.challenge) {
     if (data.reason === "lesson_today") {
       return (
-        <PortalCard className="p-4 border-emerald-200/80 bg-emerald-50/50">
-          <p className="text-[11px] uppercase tracking-wide text-emerald-800 font-semibold">
-            Сегодня урок
-          </p>
-          <p className="text-sm text-emerald-950 mt-1">
+        <PortalCard className="p-4 portal-rise border-[var(--portal-card-border)]">
+          <p className="portal-kicker !text-[var(--portal-accent)]">Сегодня урок</p>
+          <p className="text-sm text-slate-700 mt-1.5 leading-relaxed">
             День без случайного задания — стрик держи сдачей ДЗ после занятия.
           </p>
         </PortalCard>
@@ -74,21 +68,27 @@ export default function PortalDailyChallenge({
   return (
     <>
       <ConfettiBurst active={celebrate} />
-      <PortalCard className="overflow-hidden border-violet-200/80">
-        <div className="bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3 text-white">
-          <p className="text-[11px] uppercase tracking-wide text-white/75 font-semibold">
+      <PortalCard className="overflow-hidden portal-rise">
+        <div className="px-4 py-3.5 text-white relative" style={{ background: "var(--portal-hero)" }}>
+          <div className="portal-hero-shine opacity-60" aria-hidden />
+          <p className="relative text-[11px] uppercase tracking-[0.18em] text-white/65 font-bold">
             Задание дня
           </p>
-          <p className="font-bold mt-0.5">{ch.topic || "Мини-практика"}</p>
-          <p className="text-xs text-white/80 mt-1">Закрой стрик без урока — впиши ответ</p>
+          <p
+            className="relative font-bold mt-1 text-lg tracking-tight"
+            style={{ fontFamily: "var(--font-portal-display), sans-serif" }}
+          >
+            {ch.topic || "Мини-практика"}
+          </p>
+          <p className="relative text-xs text-white/75 mt-1">Закрой стрик — впиши ответ</p>
         </div>
         <div className="p-4 space-y-3">
-          <p className="text-sm font-medium text-slate-900 leading-relaxed">{ch.question}</p>
+          <p className="text-sm font-semibold text-slate-900 leading-relaxed">{ch.question}</p>
 
           {solved ? (
-            <div className="rounded-xl border p-3 text-sm bg-emerald-50 border-emerald-200 text-emerald-950">
+            <div className="rounded-xl border p-3.5 text-sm bg-emerald-50 border-emerald-200 text-emerald-950">
               <p className="font-bold">
-                Верно — стрик засчитан 🔥
+                Верно — стрик засчитан
                 {ch.ai_score != null ? ` · ${ch.ai_score}%` : ""}
               </p>
               {ch.ai_feedback && <p className="mt-1.5 leading-relaxed">{ch.ai_feedback}</p>}
@@ -99,7 +99,7 @@ export default function PortalDailyChallenge({
           ) : (
             <>
               {ch.status === "incorrect" && (
-                <div className="rounded-xl border p-3 text-sm bg-amber-50 border-amber-200 text-amber-950">
+                <div className="rounded-xl border p-3.5 text-sm bg-amber-50 border-amber-200 text-amber-950">
                   <p className="font-bold">
                     Пока неверно
                     {ch.ai_score != null ? ` · ${ch.ai_score}%` : ""}
@@ -118,14 +118,14 @@ export default function PortalDailyChallenge({
                       if (e.key === "Enter") submit();
                     }}
                     placeholder="Твой ответ…"
-                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm"
+                    className="w-full px-3.5 py-3 rounded-xl border border-slate-200/90 bg-white text-sm outline-none focus:border-[var(--portal-accent)] focus:ring-2 focus:ring-[var(--portal-accent)]/15"
                   />
                   {error && <p className="text-xs text-rose-600">{error}</p>}
                   <button
                     type="button"
                     disabled={busy || !answer.trim()}
                     onClick={submit}
-                    className="w-full py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold disabled:opacity-50"
+                    className="portal-btn-primary w-full disabled:opacity-50"
                   >
                     {busy ? "Проверяем…" : ch.status === "incorrect" ? "Попробовать снова" : "Проверить"}
                   </button>
