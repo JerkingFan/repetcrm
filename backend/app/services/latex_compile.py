@@ -85,8 +85,8 @@ def compile_tex_local(tex: str, out_path: str, *, timeout: int = 120) -> bool:
     return False
 
 
-def compile_tex_online(tex: str, out_path: str, *, timeout: float = 90.0) -> bool:
-    """latexonline.cc — облачная компиляция (аналог Overleaf без API-ключа)."""
+def compile_tex_online(tex: str, out_path: str, *, timeout: float = 20.0) -> bool:
+    """latexonline.cc — облачная компиляция (короткий таймаут → fallback на fpdf)."""
     if not settings.latex_online_compile:
         return False
     try:
@@ -121,6 +121,7 @@ def compile_tex_online(tex: str, out_path: str, *, timeout: float = 90.0) -> boo
 
 
 def compile_tex_to_pdf(tex: str, out_path: str) -> bool:
-    if compile_tex_online(tex, out_path):
+    # Локальный TeX быстрее и надёжнее облака; в Docker обычно нет — тогда short online.
+    if compile_tex_local(tex, out_path, timeout=45):
         return True
-    return compile_tex_local(tex, out_path)
+    return compile_tex_online(tex, out_path, timeout=20.0)

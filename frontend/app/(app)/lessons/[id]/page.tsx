@@ -339,34 +339,30 @@ export default function LessonDetailPage() {
     if (!homeworkId || pdfLoading) return;
     setError("");
     setPdfLoading(true);
-    setPdfStatus("Подготавливаем домашнее задание…");
+    setPdfStatus("Собираем PDF… обычно до 30 секунд");
 
-    const statusSteps = [
-      "Компилируем формулы (LaTeX)…",
-      "Собираем PDF…",
-      "Почти готово…",
-    ];
+    const statusSteps = ["Собираем PDF…", "Компилируем формулы…", "Почти готово…"];
     let step = 0;
     const statusTimer = window.setInterval(() => {
       setPdfStatus(statusSteps[Math.min(step, statusSteps.length - 1)]);
       step += 1;
-    }, 9000);
+    }, 8000);
 
     try {
-      const tryFetchPdf = async () => authFetch(api.homework.pdfUrl(homeworkId));
+      let res = await authFetch(api.homework.pdfUrl(homeworkId));
 
-      let res = await tryFetchPdf();
+      // Совместимость со старым API (202 + job)
       if (res.status === 202) {
         const started = (await res.json()) as { job_id: string };
-        setPdfStatus("Собираем PDF в фоне…");
+        setPdfStatus("Собираем PDF…");
         const polled = await pollJobUntilDone(started.job_id, (status) => {
-          if (status === "running") setPdfStatus("Компилируем формулы (LaTeX)…");
+          if (status === "running") setPdfStatus("Компилируем формулы…");
         });
         if (!polled.ok) {
           setError(polled.error || "Ошибка сборки PDF");
           return;
         }
-        res = await tryFetchPdf();
+        res = await authFetch(api.homework.pdfUrl(homeworkId));
       }
 
       if (!res.ok) {
@@ -391,9 +387,7 @@ export default function LessonDetailPage() {
       URL.revokeObjectURL(url);
       setSuccess("PDF готов и скачан.");
     } catch {
-      setError(
-        "Не удалось связаться с сервером. Запущен ли бэкенд на порту 8000?"
-      );
+      setError("Не удалось связаться с сервером. Проверьте интернет или войдите снова.");
     } finally {
       window.clearInterval(statusTimer);
       setPdfLoading(false);
@@ -790,7 +784,7 @@ export default function LessonDetailPage() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-brand-green">{pdfStatus}</p>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Обычно 20–40 секунд (LaTeX и формулы). Не закрывайте страницу.
+                    Обычно до 30 секунд. Если дольше — обновите страницу и попробуйте снова.
                   </p>
                 </div>
               </div>

@@ -1,6 +1,5 @@
+import asyncio
 import os
-
-from fastapi.responses import JSONResponse
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -21,12 +20,11 @@ from app.services.latex_convert import (
     process_homework_html,
 )
 from app.services.pdf import (
+    generate_homework_pdf,
     homework_pdf_cache_fresh,
     homework_pdf_path,
     invalidate_homework_pdf,
 )
-from app.services.job_queue import job_queue, ARQ_TASK_BUILD_PDF
-from app.services.job_tasks import run_build_pdf
 
 
 router = APIRouter(prefix="/homework", tags=["homework"])
@@ -192,24 +190,35 @@ async def download_pdf(homework_id: int, user: User = Depends(get_current_user),
         prefs,
     )
     cached = homework_pdf_path(hw.id)
-    if homework_pdf_cache_fresh(cached, hw.updated_at):
-        path = cached
-    else:
-        # Start background build and ask client to poll.
-        job = await job_queue.enqueue_unique(
-            owner_user_id=user.id,
-            key_type="homework",
-            key_value=homework_id,
-            job_type="build_pdf",
-            arq_task=ARQ_TASK_BUILD_PDF,
-            arq_args=(homework_id, user.id),
-            inprocess_runner=lambda: run_build_pdf(homework_id, user.id),
-        )
-        return JSONResponse(
-            status_code=202,
-            content={"job_id": job.id, "status": job.status},
-            headers={"Retry-After": "2"},
-        )
+    if not homework_pdf_cache_fresh(cached, hw.updated_at):
+        # Синхронная сборка: не зависаем на ARQ/worker и долгом latexonline
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    generate_homework_pdf,
+                    hw.id,
+                    lesson.student.name,
+                    lesson.lesson_date,
+                    hw.homework_text,
+                    subject=lesson.student.subject,
+                    checklist=checklist or None,
+                    grade=lesson.student.grade or "",
+                    homework_prefs=prefs,
+                ),
+                timeout=55.0,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail="PDF слишком долго собирается. Попробуйте ещё раз через минуту.",
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Не удалось создать PDF: {e}") from e
+
+    path = homework_pdf_path(hw.id)
+    if not os.path.isfile(path) or os.path.getsize(path) < 200:
+        raise HTTPException(status_code=500, detail="PDF-файл не создан")
+
     filename = f"homework_{lesson.student.name}_{lesson.lesson_date}.pdf".replace(" ", "_")
     return FileResponse(
         path,

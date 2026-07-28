@@ -61,12 +61,29 @@ def _font_paths() -> tuple[str, str]:
         ]:
             if regular.is_file():
                 return str(regular), str(bold) if bold.is_file() else str(regular)
+
+    candidates = [
+        (
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        ),
+        (
+            Path("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+            Path("/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"),
+        ),
+        (
+            Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
+            Path("/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"),
+        ),
+    ]
     assets = Path(__file__).resolve().parent.parent / "assets" / "fonts"
-    regular = assets / "DejaVuSans.ttf"
-    if regular.is_file():
-        bold = assets / "DejaVuSans-Bold.ttf"
-        return str(regular), str(bold) if bold.is_file() else str(regular)
-    raise RuntimeError("Не найден шрифт с кириллицей (Arial / DejaVu)")
+    candidates.append((assets / "DejaVuSans.ttf", assets / "DejaVuSans-Bold.ttf"))
+
+    for regular, bold in candidates:
+        if regular.is_file():
+            return str(regular), str(bold) if bold.is_file() else str(regular)
+
+    raise RuntimeError("Не найден шрифт с кириллицей (DejaVu / Arial)")
 
 
 def _pdf_plain_fallback(path: str, lesson_date: date, content: str) -> None:

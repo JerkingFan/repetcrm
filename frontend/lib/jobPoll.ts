@@ -26,11 +26,19 @@ export async function pollJobUntilDone(
         return { ok: false, error: j.error || "Ошибка выполнения задачи" };
       }
     } catch (e) {
-      if (e instanceof ApiError && e.status === 404) {
-        return {
-          ok: false,
-          error: "Задача не найдена (сервер перезапущен). Нажмите «Сгенерировать» снова.",
-        };
+      if (e instanceof ApiError) {
+        if (e.status === 401 || e.status === 403) {
+          return {
+            ok: false,
+            error: "Сессия истекла. Обновите страницу и войдите снова.",
+          };
+        }
+        if (e.status === 404) {
+          return {
+            ok: false,
+            error: "Задача не найдена (сервер перезапущен). Попробуйте снова.",
+          };
+        }
       }
     }
     await new Promise((r) => setTimeout(r, JOB_POLL_INTERVAL_MS));
