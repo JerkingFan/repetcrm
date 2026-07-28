@@ -148,3 +148,32 @@ body {
 .portal-hw .homework-task {
   @apply rounded-xl bg-slate-50 border border-slate-100 p-3 my-2;
 }
+
+.portal-hw-focus {
+  line-height: 1.55;
+}
+.portal-hw-focus h1,
+.portal-hw-focus h2,
+.portal-hw-focus h3,
+.portal-hw-focus .section-title,
+.portal-hw-focus section > strong:first-child {
+  @apply text-base font-bold text-teal-300 mt-4 mb-2 first:mt-0;
+}
+.portal-hw-focus ol,
+.portal-hw-focus ul {
+  @apply pl-5 my-2 space-y-2;
+}
+.portal-hw-focus li,
+.portal-hw-focus p {
+  @apply text-sm text-slate-200 my-2;
+}
+.portal-hw-focus img {
+  @apply inline-block max-h-8 align-middle mx-0.5;
+}
+.portal-hw-focus .task,
+.portal-hw-focus .homework-task {
+  @apply rounded-lg bg-white/5 border border-white/10 p-3 my-2;
+}
+.portal-hw-focus a {
+  @apply text-teal-400 underline;
+}

@@ -330,8 +330,9 @@ function PortalContent() {
         open={focusOpen}
         onClose={() => setFocusOpen(false)}
         homework={homework}
-        lessons={lessons}
-        onOpenHomework={openHomework}
+        onSubmitted={() => {
+          void loadData();
+        }}
       />
 
       {rescheduleLesson && (
