@@ -28,7 +28,7 @@ from app.schemas import (
 )
 from app.services.payment_service import create_payment_intent
 from app.services.ics_calendar import build_ics
-from app.services.homework_output import homework_content_to_html
+from app.services.homework_output import homework_content_to_html, homework_plain_preview
 from app.services.homework_submission_ai import mark_submission_pending_ai, schedule_ai_review
 from app.services.portal_token import student_by_portal_token
 from app.services.auth_rate_limit import get_register_limiter
@@ -57,9 +57,8 @@ _ALLOWED_MIME = {
 }
 
 
-def _preview(text: str) -> str:
-    clean = " ".join((text or "").split())
-    return clean[:200] + ("…" if len(clean) > 200 else "")
+def _preview(text: str) -> tuple[str, int]:
+    return homework_plain_preview(text, max_len=140)
 
 
 @router.post("/session", response_model=PortalStudentOut)
@@ -176,18 +175,22 @@ def portal_homework_list(student: Student = Depends(get_current_student), db: Se
             submitted.add(sub.homework_id)
             if sub.homework_id not in status_by_hw:
                 status_by_hw[sub.homework_id] = sub.status or "submitted"
-    return [
-        PortalHomeworkOut(
-            id=hw.id,
-            lesson_id=hw.lesson_id,
-            lesson_date=lesson_date,
-            preview=_preview(hw.homework_text),
-            has_submission=hw.id in submitted,
-            submission_status=status_by_hw.get(hw.id, "not_submitted"),
-            updated_at=hw.updated_at,
+    out: list[PortalHomeworkOut] = []
+    for hw, lesson_date in rows:
+        preview, tasks_count = _preview(hw.homework_text)
+        out.append(
+            PortalHomeworkOut(
+                id=hw.id,
+                lesson_id=hw.lesson_id,
+                lesson_date=lesson_date,
+                preview=preview,
+                tasks_count=tasks_count,
+                has_submission=hw.id in submitted,
+                submission_status=status_by_hw.get(hw.id, "not_submitted"),
+                updated_at=hw.updated_at,
+            )
         )
-        for hw, lesson_date in rows
-    ]
+    return out
 
 
 @router.get("/homework/{homework_id}", response_model=PortalHomeworkDetailOut)

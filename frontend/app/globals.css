@@ -23,3 +23,32 @@ body {
 .safe-area-pb {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }
+
+/* Кабинет ученика: читаемое ДЗ */
+.portal-hw {
+  line-height: 1.55;
+}
+.portal-hw h1,
+.portal-hw h2,
+.portal-hw h3,
+.portal-hw .section-title,
+.portal-hw section > strong:first-child {
+  @apply text-base font-bold text-brand-blue mt-4 mb-2 first:mt-0;
+}
+.portal-hw ol,
+.portal-hw ul {
+  @apply pl-5 my-2 space-y-2;
+}
+.portal-hw li {
+  @apply text-sm text-slate-800;
+}
+.portal-hw p {
+  @apply my-2 text-sm;
+}
+.portal-hw img {
+  @apply inline-block max-h-8 align-middle mx-0.5;
+}
+.portal-hw .task,
+.portal-hw .homework-task {
+  @apply rounded-xl bg-slate-50 border border-slate-100 p-3 my-2;
+}

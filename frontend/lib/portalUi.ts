@@ -1,6 +1,6 @@
 /** Shared labels/styles for student portal UI */
 
-export type PortalTab = "home" | "homework" | "schedule" | "pay";
+export type PortalTab = "home" | "homework" | "schedule";
 
 export const SUBMISSION_STATUS_LABEL: Record<string, string> = {
   not_submitted: "Не сдано",

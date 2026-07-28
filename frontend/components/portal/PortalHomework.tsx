@@ -1,10 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AI_VERDICT_LABEL,
   aiVerdictBoxClass,
   formatRuDate,
+  formatRuWeekday,
+  isToday,
   submissionChipClass,
   SUBMISSION_STATUS_LABEL,
 } from "@/lib/portalUi";
@@ -14,6 +16,7 @@ type HomeworkItem = {
   id: number;
   lesson_date: string;
   preview: string;
+  tasks_count?: number;
   has_submission: boolean;
   submission_status?: string;
 };
@@ -24,6 +27,7 @@ type Submission = {
   submitted_at: string;
   status?: string;
   comment?: string;
+  tutor_comment?: string;
   ai_review_status?: string;
   ai_verdict?: string;
   ai_score?: number | null;
@@ -38,6 +42,17 @@ type HomeworkDetail = {
   preview_html?: string;
   submissions: Submission[];
 };
+
+type Filter = "all" | "todo" | "done";
+
+function statusOf(h: HomeworkItem): string {
+  return h.submission_status || (h.has_submission ? "submitted" : "not_submitted");
+}
+
+function isTodo(h: HomeworkItem): boolean {
+  const s = statusOf(h);
+  return s === "not_submitted" || s === "needs_revision";
+}
 
 export default function PortalHomework({
   items,
@@ -63,58 +78,149 @@ export default function PortalHomework({
   const fileRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [expanded, setExpanded] = useState(false);
 
-  const pending = items.filter(
-    (h) => !h.has_submission || h.submission_status === "needs_revision"
-  );
-  const done = items.filter(
-    (h) => h.has_submission && h.submission_status !== "needs_revision"
-  );
+  useEffect(() => {
+    setExpanded(false);
+  }, [selectedId]);
+
+  const todoCount = items.filter(isTodo).length;
+  const doneCount = items.length - todoCount;
+
+  const filtered = useMemo(() => {
+    if (filter === "todo") return items.filter(isTodo);
+    if (filter === "done") return items.filter((h) => !isTodo(h));
+    return items;
+  }, [items, filter]);
 
   if (selectedId && detail) {
     const latest = detail.submissions[0];
+    const status = latest?.status || "not_submitted";
+
     return (
       <>
         <button
           type="button"
           onClick={onBack}
-          className="text-sm font-medium text-brand-blue inline-flex items-center gap-1"
+          className="text-sm font-medium text-brand-blue inline-flex items-center gap-1.5"
         >
-          ← К списку ДЗ
+          <span aria-hidden>←</span> К списку ДЗ
         </button>
 
-        <PortalCard className="p-5 space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">
-                ДЗ · {formatRuDate(detail.lesson_date)}
-              </h2>
-              <p className="text-sm text-slate-500 mt-0.5">Прочитайте задание и сдайте фото решения</p>
-            </div>
-            {latest?.status && (
+        <PortalCard className="overflow-hidden">
+          <div className="bg-gradient-to-r from-brand-blue to-[#2f56c9] px-5 py-4 text-white">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-white/70 font-semibold">
+                  Домашнее задание
+                </p>
+                <h2 className="text-xl font-bold mt-0.5">
+                  {formatRuDate(detail.lesson_date, {
+                    day: "numeric",
+                    month: "long",
+                    weekday: "short",
+                  })}
+                </h2>
+              </div>
               <span
-                className={`text-[11px] font-medium px-2 py-1 rounded-lg shrink-0 ${submissionChipClass(
-                  latest.status
-                )}`}
+                className={`text-[11px] font-semibold px-2.5 py-1 rounded-full shrink-0 ${
+                  status === "reviewed"
+                    ? "bg-emerald-400/25 text-white"
+                    : status === "needs_revision"
+                      ? "bg-amber-300/30 text-white"
+                      : status === "submitted"
+                        ? "bg-white/20 text-white"
+                        : "bg-white/15 text-white/90"
+                }`}
               >
-                {SUBMISSION_STATUS_LABEL[latest.status] || latest.status}
+                {SUBMISSION_STATUS_LABEL[status] || status}
               </span>
-            )}
+            </div>
           </div>
 
-          <div
-            className="prose prose-sm max-w-none text-slate-700 max-h-64 overflow-y-auto p-4 bg-slate-50 rounded-xl border border-slate-100"
-            dangerouslySetInnerHTML={{
-              __html: detail.preview_html || detail.homework_text,
-            }}
-          />
+          <div className="p-4 sm:p-5">
+            <div
+              className={`portal-hw prose prose-sm max-w-none text-slate-800 overflow-hidden transition-[max-height] ${
+                expanded ? "max-h-none" : "max-h-72"
+              }`}
+            >
+              <div
+                dangerouslySetInnerHTML={{
+                  __html: detail.preview_html || detail.homework_text,
+                }}
+              />
+            </div>
+            {!expanded && (
+              <div className="relative -mt-10 h-10 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+            )}
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="mt-1 text-sm font-semibold text-brand-blue"
+            >
+              {expanded ? "Свернуть задание" : "Показать полностью"}
+            </button>
+          </div>
         </PortalCard>
 
+        {(latest?.tutor_comment ||
+          latest?.ai_review_status === "done" ||
+          latest?.ai_review_status === "pending" ||
+          latest?.ai_review_status === "running" ||
+          latest?.ai_review_status === "error" ||
+          latest?.ai_review_status === "skipped") && (
+          <PortalCard className="p-4 space-y-3">
+            <h3 className="font-semibold text-slate-800 text-sm">Результат проверки</h3>
+            {latest?.tutor_comment && (
+              <div className="p-3 rounded-xl bg-brand-blue/5 border border-brand-blue/15 text-sm text-slate-800">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-blue mb-1">
+                  Комментарий репетитора
+                </p>
+                {latest.tutor_comment}
+              </div>
+            )}
+            {(latest.ai_review_status === "pending" || latest.ai_review_status === "running") && (
+              <div className="p-4 rounded-xl border border-sky-200 bg-sky-50 text-sm text-sky-950">
+                <div className="flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
+                  <p className="font-semibold">AI проверяет решение…</p>
+                </div>
+                <p className="mt-1 text-sky-800/80 text-xs">Обычно 10–30 секунд</p>
+              </div>
+            )}
+            {latest.ai_review_status === "done" && latest.ai_verdict && (
+              <div className={`p-4 rounded-xl border text-sm ${aiVerdictBoxClass(latest.ai_verdict)}`}>
+                <p className="font-bold text-base">
+                  {AI_VERDICT_LABEL[latest.ai_verdict] || latest.ai_verdict}
+                  {latest.ai_score != null ? ` · ${latest.ai_score}%` : ""}
+                </p>
+                {latest.ai_feedback && (
+                  <p className="mt-2 leading-relaxed whitespace-pre-wrap">{latest.ai_feedback}</p>
+                )}
+                <p className="mt-3 text-xs opacity-75">
+                  Предварительная оценка AI. Репетитор может подтвердить или изменить.
+                </p>
+              </div>
+            )}
+            {latest.ai_review_status === "skipped" && latest.ai_feedback && (
+              <p className="text-sm text-slate-500 bg-slate-50 rounded-xl p-3">{latest.ai_feedback}</p>
+            )}
+            {latest.ai_review_status === "error" && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">
+                Автопроверка не сработала — репетитор проверит вручную.
+              </div>
+            )}
+          </PortalCard>
+        )}
+
         <PortalCard className="p-5 space-y-4">
-          <h3 className="font-semibold text-slate-800">Сдать решение</h3>
-          <p className="text-sm text-slate-500 -mt-2">
-            Лучше фото в хорошем свете. PDF тоже можно, но AI проверяет только фото.
-          </p>
+          <div>
+            <h3 className="font-semibold text-slate-800">Сдать решение</h3>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Сфотографируйте тетрадь при хорошем свете. AI проверяет фото (не PDF).
+            </p>
+          </div>
 
           <div
             onDragOver={(e) => {
@@ -128,32 +234,39 @@ export default function PortalHomework({
               const f = e.dataTransfer.files?.[0];
               if (f) onSubmitFile(f);
             }}
-            className={`rounded-2xl border-2 border-dashed p-6 text-center transition ${
-              dragOver
-                ? "border-brand-green bg-emerald-50"
-                : "border-slate-200 bg-slate-50/80"
+            className={`rounded-2xl border-2 border-dashed p-5 text-center transition ${
+              dragOver ? "border-brand-green bg-emerald-50" : "border-slate-200 bg-slate-50/90"
             }`}
           >
-            <p className="text-sm font-medium text-slate-700">
-              {uploading ? "Отправляем…" : "Перетащите файл сюда"}
+            <div className="mx-auto w-12 h-12 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-brand-blue mb-3 shadow-sm">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+                />
+              </svg>
+            </div>
+            <p className="text-sm font-semibold text-slate-800">
+              {uploading ? "Отправляем…" : "Загрузите фото решения"}
             </p>
-            <p className="text-xs text-slate-500 mt-1">JPG, PNG, WebP или PDF</p>
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <p className="text-xs text-slate-500 mt-1">JPG, PNG, WebP · до 15 МБ</p>
+            <div className="mt-4 flex flex-col sm:flex-row justify-center gap-2">
               <button
                 type="button"
                 disabled={uploading}
                 onClick={() => cameraRef.current?.click()}
-                className="px-4 py-2.5 rounded-xl bg-brand-blue text-white text-sm font-semibold disabled:opacity-50"
+                className="px-4 py-3 rounded-xl bg-brand-blue text-white text-sm font-semibold disabled:opacity-50"
               >
-                Сфотографировать
+                Открыть камеру
               </button>
               <button
                 type="button"
                 disabled={uploading}
                 onClick={() => fileRef.current?.click()}
-                className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 disabled:opacity-50"
+                className="px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 disabled:opacity-50"
               >
-                Из галереи / файла
+                Выбрать файл
               </button>
             </div>
             <input
@@ -191,44 +304,6 @@ export default function PortalHomework({
             className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
           />
 
-          {latest &&
-            (latest.ai_review_status === "pending" || latest.ai_review_status === "running") && (
-              <div className="p-4 rounded-xl border border-sky-200 bg-sky-50 text-sm text-sky-950">
-                <p className="font-semibold">AI проверяет решение…</p>
-                <p className="mt-1 text-sky-800/80">Обычно 10–30 секунд. Страница обновится сама.</p>
-              </div>
-            )}
-
-          {latest?.ai_review_status === "done" && latest.ai_verdict && (
-            <div
-              className={`p-4 rounded-xl border text-sm ${aiVerdictBoxClass(latest.ai_verdict)}`}
-            >
-              <p className="font-bold text-base">
-                {AI_VERDICT_LABEL[latest.ai_verdict] || latest.ai_verdict}
-                {latest.ai_score != null ? ` · ${latest.ai_score}%` : ""}
-              </p>
-              {latest.ai_feedback && (
-                <p className="mt-2 leading-relaxed whitespace-pre-wrap">{latest.ai_feedback}</p>
-              )}
-              <p className="mt-3 text-xs opacity-75">
-                Предварительная оценка AI. Репетитор может подтвердить или изменить.
-              </p>
-            </div>
-          )}
-
-          {latest?.ai_review_status === "skipped" && latest.ai_feedback && (
-            <p className="text-sm text-slate-500 bg-slate-50 rounded-xl p-3">{latest.ai_feedback}</p>
-          )}
-
-          {latest?.ai_review_status === "error" && (
-            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">
-              Автопроверка не сработала — репетитор проверит вручную.
-              {latest.ai_review_error && (
-                <p className="text-xs mt-1 opacity-70">{latest.ai_review_error}</p>
-              )}
-            </div>
-          )}
-
           {detail.submissions.length > 0 && (
             <div className="pt-2 border-t border-slate-100">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">
@@ -238,7 +313,7 @@ export default function PortalHomework({
                 {detail.submissions.map((s) => (
                   <li
                     key={s.id}
-                    className="flex justify-between gap-2 text-sm text-slate-600 bg-slate-50 rounded-lg px-3 py-2"
+                    className="flex justify-between gap-2 text-sm text-slate-600 bg-slate-50 rounded-xl px-3 py-2.5"
                   >
                     <span className="truncate font-medium">{s.original_filename}</span>
                     <span className="text-xs text-slate-400 shrink-0">
@@ -259,51 +334,120 @@ export default function PortalHomework({
     );
   }
 
-  const renderList = (list: HomeworkItem[], title: string) => (
-    <PortalCard>
-      <div className="px-5 pt-4 pb-2">
-        <h3 className="font-semibold text-slate-800">{title}</h3>
-      </div>
-      {list.length === 0 ? (
-        <PortalEmpty
-          title={title === "Нужно сдать" ? "Всё сдано" : "Пока пусто"}
-          hint={title === "Нужно сдать" ? "Новые задания появятся после урока" : undefined}
-        />
-      ) : (
-        <ul className="divide-y divide-slate-100">
-          {list.map((h) => (
-            <li key={h.id}>
-              <button
-                type="button"
-                onClick={() => onSelect(h.id)}
-                className="w-full text-left px-5 py-4 hover:bg-slate-50 transition"
-              >
-                <div className="flex justify-between gap-2 items-center">
-                  <span className="font-medium text-slate-800">{formatRuDate(h.lesson_date)}</span>
-                  <span
-                    className={`text-[11px] font-medium px-2 py-0.5 rounded-lg ${submissionChipClass(
-                      h.submission_status || "not_submitted"
-                    )}`}
-                  >
-                    {SUBMISSION_STATUS_LABEL[h.submission_status || "not_submitted"] ||
-                      (h.has_submission ? "Сдано" : "Не сдано")}
-                  </span>
-                </div>
-                {h.preview && (
-                  <p className="text-xs text-slate-500 mt-1.5 line-clamp-2">{h.preview}</p>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </PortalCard>
-  );
-
   return (
     <>
-      {renderList(pending, "Нужно сдать")}
-      {done.length > 0 && renderList(done, "Сданные")}
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+        {(
+          [
+            { id: "all" as const, label: "Все", count: items.length },
+            { id: "todo" as const, label: "Сдать", count: todoCount },
+            { id: "done" as const, label: "Готово", count: doneCount },
+          ] as const
+        ).map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => setFilter(f.id)}
+            className={`shrink-0 px-3.5 py-2 rounded-full text-sm font-semibold border transition ${
+              filter === f.id
+                ? "bg-brand-blue text-white border-brand-blue"
+                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            {f.label}
+            <span
+              className={`ml-1.5 text-xs ${filter === f.id ? "text-white/80" : "text-slate-400"}`}
+            >
+              {f.count}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <PortalCard>
+          <PortalEmpty
+            title={filter === "todo" ? "Всё сдано" : "Пока нет заданий"}
+            hint={
+              filter === "todo"
+                ? "Новые ДЗ появятся после урока"
+                : "Репетитор подготовит домашнее задание"
+            }
+          />
+        </PortalCard>
+      ) : (
+        <ul className="space-y-3">
+          {filtered.map((h) => {
+            const st = statusOf(h);
+            const todo = isTodo(h);
+            return (
+              <li key={h.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(h.id)}
+                  className={`w-full text-left rounded-2xl border bg-white p-4 shadow-sm shadow-slate-200/40 transition hover:border-brand-blue/30 hover:shadow-md ${
+                    todo ? "border-amber-200/80" : "border-slate-200/80"
+                  }`}
+                >
+                  <div className="flex gap-3">
+                    <div
+                      className={`w-12 shrink-0 rounded-xl text-center py-1.5 ${
+                        isToday(h.lesson_date)
+                          ? "bg-brand-green/15 text-emerald-800"
+                          : todo
+                            ? "bg-amber-50 text-amber-900"
+                            : "bg-slate-100 text-slate-700"
+                      }`}
+                    >
+                      <p className="text-[10px] font-semibold uppercase">
+                        {formatRuWeekday(h.lesson_date)}
+                      </p>
+                      <p className="text-lg font-bold leading-tight">
+                        {new Date(h.lesson_date).getDate()}
+                      </p>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-900 truncate">
+                            {formatRuDate(h.lesson_date)}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {h.tasks_count && h.tasks_count > 0
+                              ? `${h.tasks_count} ${
+                                  h.tasks_count === 1
+                                    ? "задача"
+                                    : h.tasks_count < 5
+                                      ? "задачи"
+                                      : "задач"
+                                }`
+                              : "Домашнее задание"}
+                          </p>
+                        </div>
+                        <span
+                          className={`text-[11px] font-semibold px-2 py-1 rounded-lg shrink-0 ${submissionChipClass(
+                            st
+                          )}`}
+                        >
+                          {SUBMISSION_STATUS_LABEL[st] || st}
+                        </span>
+                      </div>
+                      {h.preview && (
+                        <p className="text-sm text-slate-600 mt-2 line-clamp-2 leading-snug">
+                          {h.preview}
+                        </p>
+                      )}
+                      <p className="text-xs font-semibold text-brand-blue mt-2.5">
+                        {todo ? "Открыть и сдать →" : "Открыть →"}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </>
   );
 }

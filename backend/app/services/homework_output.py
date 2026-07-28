@@ -528,6 +528,50 @@ def homework_content_to_html(content: str, *, render_math_images: bool = False) 
     return process_homework_html(f"<div>{content}</div>", render_images=render_math_images)
 
 
+def homework_plain_preview(content: str, *, max_len: int = 160) -> tuple[str, int]:
+    """
+    Читаемый превью-текст для списка ДЗ (без \\documentclass и preamble).
+    Returns (preview, task_count).
+    """
+    text = (content or "").strip()
+    if not text:
+        return "", 0
+
+    tasks: list[str] = []
+    if is_latex_document(text):
+        tasks = [t for t in _extract_task_bodies(text) if t and not is_placeholder_task(t)]
+
+    if not tasks and text.lstrip().startswith("<"):
+        plain = re.sub(r"<[^>]+>", " ", text)
+        plain = " ".join(plain.split())
+        return (plain[:max_len] + ("…" if len(plain) > max_len else "")), 0
+
+    if tasks:
+        n = len(tasks)
+        first = re.sub(r"\s+", " ", tasks[0]).strip()
+        # убрать остатки latex-команд в превью
+        first = re.sub(r"\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})?", " ", first)
+        first = re.sub(r"[${}\\]", "", first)
+        first = " ".join(first.split())
+        label = f"{n} задан" + ("ие" if n == 1 else "ия" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "ий")
+        body = first[: max(40, max_len - len(label) - 3)]
+        if len(first) > len(body):
+            body += "…"
+        return f"{label}: {body}", n
+
+    # plain text / fallback — вырезать latex-шум
+    clean = text
+    clean = re.sub(r"\\documentclass\{[^}]*\}", " ", clean, flags=re.I)
+    clean = re.sub(r"\\usepackage(?:\[[^\]]*\])?\{[^}]*\}", " ", clean, flags=re.I)
+    clean = re.sub(r"\\(begin|end)\{[^}]*\}", " ", clean, flags=re.I)
+    clean = re.sub(r"\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})?", " ", clean)
+    clean = re.sub(r"[${}\\]", " ", clean)
+    clean = " ".join(clean.split())
+    if not clean or len(clean) < 8:
+        return "Домашнее задание", 0
+    return clean[:max_len] + ("…" if len(clean) > max_len else ""), 0
+
+
 def process_homework_html(html: str, render_images: bool = True) -> str:
     from app.services.latex_convert import process_homework_html as _proc
 

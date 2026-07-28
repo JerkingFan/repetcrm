@@ -9,7 +9,7 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 import PortalBottomNav from "@/components/portal/PortalBottomNav";
 import PortalHomework from "@/components/portal/PortalHomework";
 import PortalShell from "@/components/portal/PortalShell";
-import { PortalHome, PortalPay, PortalSchedule } from "@/components/portal/PortalSections";
+import { PortalHome, PortalSchedule } from "@/components/portal/PortalSections";
 
 function PortalContent() {
   const params = useSearchParams();
@@ -26,10 +26,8 @@ function PortalContent() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [paying, setPaying] = useState(false);
   const [comment, setComment] = useState("");
   const [success, setSuccess] = useState("");
-  const [payAmount, setPayAmount] = useState("40");
 
   const loadData = async () => {
     const me = await api.portal.me();
@@ -119,21 +117,6 @@ function PortalContent() {
     }
   };
 
-  const pay = async (provider: "card" | "erip") => {
-    const amount = Number(payAmount);
-    if (amount <= 0) return;
-    setPaying(true);
-    setError("");
-    try {
-      const r = await api.portal.createPaymentIntent(amount, provider);
-      if (r.payment_url) window.location.href = r.payment_url;
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Ошибка оплаты");
-    } finally {
-      setPaying(false);
-    }
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -169,7 +152,6 @@ function PortalContent() {
       subtitle: pendingCount ? `${pendingCount} ждут сдачи` : "Все сдано",
     },
     schedule: { title: "Расписание", subtitle: student.tutor_name ? `с ${student.tutor_name}` : undefined },
-    pay: { title: "Оплата", subtitle: "Баланс и пополнение" },
   };
 
   return (
@@ -206,16 +188,6 @@ function PortalContent() {
 
       {tab === "schedule" && (
         <PortalSchedule lessons={lessons} calendarUrl={api.portal.calendarIcsUrl()} />
-      )}
-
-      {tab === "pay" && (
-        <PortalPay
-          balance={student.balance}
-          amount={payAmount}
-          onAmountChange={setPayAmount}
-          onPay={pay}
-          paying={paying}
-        />
       )}
 
       <PortalBottomNav

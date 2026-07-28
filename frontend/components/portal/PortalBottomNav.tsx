@@ -31,15 +31,6 @@ const TABS: { id: PortalTab; label: string; icon: ReactNode }[] = [
       </svg>
     ),
   },
-  {
-    id: "pay",
-    label: "Оплата",
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h.01M11 15h2M5 6h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" />
-      </svg>
-    ),
-  },
 ];
 
 export default function PortalBottomNav({
@@ -53,7 +44,7 @@ export default function PortalBottomNav({
 }) {
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 border-t border-slate-200/80 bg-white/95 backdrop-blur-md safe-area-pb">
-      <div className="max-w-lg mx-auto grid grid-cols-4">
+      <div className="max-w-lg mx-auto grid grid-cols-3">
         {TABS.map((t) => {
           const active = tab === t.id;
           return (

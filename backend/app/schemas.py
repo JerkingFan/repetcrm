@@ -656,6 +656,7 @@ class PortalHomeworkOut(BaseModel):
     lesson_id: int
     lesson_date: date
     preview: str
+    tasks_count: int = 0
     has_submission: bool
     submission_status: str = "not_submitted"
     updated_at: datetime

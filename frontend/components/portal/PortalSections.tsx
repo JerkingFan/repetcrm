@@ -34,6 +34,7 @@ type HomeworkItem = {
   id: number;
   lesson_date: string;
   preview: string;
+  tasks_count?: number;
   has_submission: boolean;
   submission_status?: string;
 };
@@ -61,18 +62,9 @@ export function PortalHome({
             {[student.subject, student.grade].filter(Boolean).join(" · ")}
             {student.tutor_name ? ` · ${student.tutor_name}` : ""}
           </p>
-          <div className="mt-4 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-white/60">Баланс</p>
-              <p className="text-lg font-semibold">{formatMoney(student.balance)}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onOpenTab("pay")}
-              className="px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-sm font-medium backdrop-blur"
-            >
-              Пополнить
-            </button>
+          <div className="mt-4">
+            <p className="text-[11px] uppercase tracking-wide text-white/60">Баланс</p>
+            <p className="text-lg font-semibold">{formatMoney(student.balance)}</p>
           </div>
         </div>
       </PortalCard>
@@ -181,6 +173,7 @@ export function PortalHome({
                   {h.preview && (
                     <p className="text-xs text-slate-500 mt-1 line-clamp-2">{h.preview}</p>
                   )}
+                  <p className="text-[11px] font-semibold text-brand-blue mt-1.5">Открыть →</p>
                 </button>
               </li>
             ))}
@@ -264,81 +257,6 @@ export function PortalSchedule({
           </ul>
         </PortalCard>
       )}
-    </>
-  );
-}
-
-export function PortalPay({
-  balance,
-  amount,
-  onAmountChange,
-  onPay,
-  paying,
-}: {
-  balance: number;
-  amount: string;
-  onAmountChange: (v: string) => void;
-  onPay: (provider: "card" | "erip") => void;
-  paying: boolean;
-}) {
-  const presets = [40, 80, 160, 320];
-  return (
-    <>
-      <PortalCard className="p-5">
-        <p className="text-sm text-slate-500">Текущий баланс</p>
-        <p className="text-3xl font-bold text-brand-blue mt-1">{formatMoney(balance)}</p>
-        <p className="text-sm text-slate-500 mt-2">
-          С баланса списывается оплата за занятия. Пополните заранее.
-        </p>
-      </PortalCard>
-
-      <PortalCard className="p-5 space-y-4">
-        <h3 className="font-semibold text-slate-800">Пополнить</h3>
-        <div className="flex flex-wrap gap-2">
-          {presets.map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => onAmountChange(String(p))}
-              className={`px-3 py-1.5 rounded-xl text-sm font-medium border transition ${
-                amount === String(p)
-                  ? "border-brand-green bg-emerald-50 text-emerald-800"
-                  : "border-slate-200 text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {p} Br
-            </button>
-          ))}
-        </div>
-        <label className="block">
-          <span className="text-sm text-slate-600">Сумма, Br</span>
-          <input
-            type="number"
-            min={1}
-            value={amount}
-            onChange={(e) => onAmountChange(e.target.value)}
-            className="mt-1 w-full px-4 py-3 rounded-xl border border-slate-200 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
-          />
-        </label>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <button
-            type="button"
-            disabled={paying || Number(amount) <= 0}
-            onClick={() => onPay("card")}
-            className="px-4 py-3 rounded-xl bg-brand-green text-white font-semibold disabled:opacity-50"
-          >
-            Картой
-          </button>
-          <button
-            type="button"
-            disabled={paying || Number(amount) <= 0}
-            onClick={() => onPay("erip")}
-            className="px-4 py-3 rounded-xl border border-slate-200 font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            Через ЕРИП
-          </button>
-        </div>
-      </PortalCard>
     </>
   );
 }

@@ -762,6 +762,7 @@ export const api = {
           lesson_id: number;
           lesson_date: string;
           preview: string;
+          tasks_count?: number;
           has_submission: boolean;
           submission_status?: string;
           updated_at: string;
@@ -781,6 +782,7 @@ export const api = {
           submitted_at: string;
           status?: string;
           comment?: string;
+          tutor_comment?: string;
           ai_review_status?: string;
           ai_verdict?: string;
           ai_score?: number | null;
