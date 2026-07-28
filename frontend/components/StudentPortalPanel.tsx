@@ -52,7 +52,9 @@ export default function StudentPortalPanel({ studentId }: { studentId: number })
     <div className="mt-8 space-y-6">
       <div className="p-6 rounded-2xl bg-white border shadow-sm space-y-3">
         <h2 className="font-semibold text-brand-blue">Кабинет ученика</h2>
-        <p className="text-sm text-slate-500">Ссылка для расписания, ДЗ и сдачи ответов</p>
+        <p className="text-sm text-slate-500">
+          Персональная ссылка: расписание, ДЗ, фото решений с AI-проверкой, баланс
+        </p>
         <input readOnly value={portalUrl} className="w-full px-3 py-2 rounded-xl border text-sm" />
         <div className="flex flex-wrap gap-2">
           <button
