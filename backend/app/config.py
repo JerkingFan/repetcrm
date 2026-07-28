@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     openrouter_max_tokens: int = 4096
     openrouter_site_url: str = "http://localhost:3000"
     openrouter_app_name: str = "RepetCRM"
-    openrouter_vision_model: str = "google/gemini-2.0-flash-001"
+    openrouter_vision_model: str = "openai/gpt-4o-mini"
     homework_ai_review_enabled: bool = True
     ai_use_ollama: bool = False
     ollama_base_url: str = "http://localhost:11434"
