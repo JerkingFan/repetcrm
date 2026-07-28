@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, ApiError } from "@/lib/api";
 import {
   AI_VERDICT_LABEL,
@@ -261,6 +262,21 @@ export default function PortalFocus({
   const [descExpanded, setDescExpanded] = useState(false);
   const [resultOpen, setResultOpen] = useState(true);
 
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) {
       setMusicOn(false);
@@ -373,15 +389,15 @@ export default function PortalFocus({
     }
   };
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
   const latest = detail?.submissions[0];
   const status = latest?.status || (detail ? "not_submitted" : "");
   const due = detail ? homeworkDueLabel(detail.due_date, detail.lesson_date) : null;
   const list = todos.length > 0 ? todos : homework;
 
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#1a1a1a] text-slate-100">
+  return createPortal(
+    <div className="fixed inset-0 z-[200] flex flex-col bg-[#1a1a1a] text-slate-100">
       {/* Top bar — LeetCode-ish */}
       <header className="shrink-0 h-12 border-b border-white/10 bg-[#282828] flex items-center gap-2 px-3">
         <button
@@ -726,6 +742,7 @@ export default function PortalFocus({
           </div>
         )}
       </footer>
-    </div>
+    </div>,
+    document.body
   );
 }
