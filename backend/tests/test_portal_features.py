@@ -342,3 +342,22 @@ def test_portal_customize_and_daily_challenge(client):
     assert blocked.status_code == 200
     assert blocked.json()["available"] is False
     assert blocked.json()["reason"] == "lesson_today"
+
+
+def test_delete_student_with_lessons(client):
+    _register(client)
+    sid = _create_student(client, "ToDelete")
+    client.post(
+        "/lessons",
+        json={
+            "student_id": sid,
+            "lesson_date": date.today().isoformat(),
+            "lesson_time": "12:00",
+            "duration_minutes": 60,
+            "payment_amount": 0,
+            "is_paid": True,
+        },
+    )
+    deleted = client.delete(f"/students/{sid}")
+    assert deleted.status_code == 204, deleted.text
+    assert client.get(f"/students/{sid}").status_code == 404

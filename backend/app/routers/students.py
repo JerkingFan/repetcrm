@@ -34,7 +34,9 @@ from app.services.boundaries import (
     MODE_SEVERITY,
 )
 from app.services.dashboard_cache import invalidate_dashboard
+from app.services.student_delete import delete_student_cascade
 from app.services.student_search import apply_student_name_search
+from sqlalchemy.exc import IntegrityError
 from app.services.portal_token import (
     ensure_portal_token,
     regenerate_portal_token,
@@ -312,8 +314,15 @@ def delete_student(student_id: int, user: User = Depends(get_current_user), db: 
     student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
-    db.delete(student)
-    db.commit()
+    try:
+        delete_student_cascade(db, student)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Не удалось удалить ученика: есть связанные данные. Обновите страницу и попробуйте снова.",
+        )
     invalidate_dashboard(user.id)
 
 

@@ -131,9 +131,15 @@ class Student(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     tutor: Mapped["User"] = relationship(back_populates="students")
-    lessons: Mapped[list["Lesson"]] = relationship(back_populates="student")
-    packages: Mapped[list["LessonPackage"]] = relationship(back_populates="student")
-    trial_bookings: Mapped[list["TrialBooking"]] = relationship(back_populates="student")
+    lessons: Mapped[list["Lesson"]] = relationship(
+        back_populates="student", cascade="all, delete-orphan"
+    )
+    packages: Mapped[list["LessonPackage"]] = relationship(
+        back_populates="student", cascade="all, delete-orphan"
+    )
+    trial_bookings: Mapped[list["TrialBooking"]] = relationship(
+        back_populates="student", cascade="all, delete-orphan"
+    )
     daily_challenges: Mapped[list["StudentDailyChallenge"]] = relationship(
         back_populates="student", cascade="all, delete-orphan"
     )
@@ -240,8 +246,8 @@ class Lesson(Base):
     __tablename__ = "lessons"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    tutor_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    student_id: Mapped[int] = mapped_column(ForeignKey("students.id"))
+    tutor_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), index=True)
     board_id: Mapped[int | None] = mapped_column(ForeignKey("boards.id"), nullable=True)
     lesson_date: Mapped[date] = mapped_column(Date)
     lesson_time: Mapped[str] = mapped_column(String(5), default="10:00")
