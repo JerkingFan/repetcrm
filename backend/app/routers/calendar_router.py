@@ -7,8 +7,12 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session, joinedload
 
-from app.config import get_settings
 from app.database import get_db
+from app.dependencies import get_current_user
+from app.models import Lesson, LessonStatus, Student, User
+from app.services.ics_calendar import build_ics
+from app.services.portal_token import student_by_any_portal_token
+from app.services.portal_student import resolve_meeting_url
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
