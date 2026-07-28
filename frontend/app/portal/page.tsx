@@ -11,6 +11,7 @@ import LoadingSpinner from "@/components/LoadingSpinner";
 import PortalBottomNav from "@/components/portal/PortalBottomNav";
 import PortalHomework from "@/components/portal/PortalHomework";
 import PortalProgress from "@/components/portal/PortalProgress";
+import PortalFocus from "@/components/portal/PortalFocus";
 import PortalShell from "@/components/portal/PortalShell";
 import { PortalHome, PortalSchedule } from "@/components/portal/PortalSections";
 
@@ -62,6 +63,7 @@ function PortalContent() {
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleTime, setRescheduleTime] = useState("");
   const [rescheduleSaving, setRescheduleSaving] = useState(false);
+  const [focusOpen, setFocusOpen] = useState(false);
 
   const loadData = async () => {
     const me = await api.portal.me();
@@ -270,8 +272,10 @@ function PortalContent() {
           student={student}
           nextLesson={nextLesson}
           pendingHomework={pendingHomework}
+          streakDays={progress?.streak_days}
           onOpenTab={setTab}
           onOpenHomework={openHomework}
+          onOpenFocus={() => setFocusOpen(true)}
         />
       )}
 
@@ -301,6 +305,14 @@ function PortalContent() {
       )}
 
       {tab === "progress" && <PortalProgress data={progress} />}
+
+      <PortalFocus
+        open={focusOpen}
+        onClose={() => setFocusOpen(false)}
+        homework={homework}
+        lessons={lessons}
+        onOpenHomework={openHomework}
+      />
 
       {rescheduleLesson && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4">

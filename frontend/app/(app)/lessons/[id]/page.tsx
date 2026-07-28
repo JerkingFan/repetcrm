@@ -20,6 +20,7 @@ import { defaultHomeworkPrefs, HomeworkPrefs } from "@/lib/homeworkPrefs";
 import { formatMoney } from "@/lib/currency";
 import { pollJobUntilDone, JOB_POLL_INTERVAL_MS, JOB_TIMEOUT_MS } from "@/lib/jobPoll";
 import HomeworkTemplatesPanel from "@/components/HomeworkTemplatesPanel";
+import VoiceBriefButton from "@/components/VoiceBriefButton";
 import TrialFollowupBanner from "@/components/TrialFollowupBanner";
 
 type ChecklistRow = {
@@ -734,6 +735,21 @@ export default function LessonDetailPage() {
           onApplied={load}
           onPrefsLoaded={setPrefs}
           onRowsLoaded={(r) => setRows(r.length ? r : [emptyRow()])}
+        />
+        <VoiceBriefButton
+          lessonId={lessonId}
+          onStarted={(jobId, brief) => {
+            setSuccess(`Бриф сохранён: «${brief.slice(0, 80)}${brief.length > 80 ? "…" : ""}»`);
+            if (jobId) {
+              setJobId(jobId);
+              setJobStatus("queued");
+              setJobHint("Генерируем ДЗ из голосового брифа…");
+              setGenerating(true);
+              window.localStorage.setItem(`repetcrm:hw_job:${lessonId}`, jobId);
+            }
+            load();
+          }}
+          onError={(msg) => setError(msg)}
         />
         </>
         )}

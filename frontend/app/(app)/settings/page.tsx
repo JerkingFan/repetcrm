@@ -335,7 +335,7 @@ export default function SettingsPage() {
                   setNotify({ ...notify, hide_balance_in_portal: e.target.checked })
                 }
               />
-              <span className="text-sm">Скрыть баланс у ученика («оплачивает родитель»)</span>
+              <span className="text-sm">Скрыть баланс в кабинете ученика</span>
             </label>
           </div>
           <button

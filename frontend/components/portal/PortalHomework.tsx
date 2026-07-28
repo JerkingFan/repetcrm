@@ -12,6 +12,7 @@ import {
   SUBMISSION_STATUS_LABEL,
 } from "@/lib/portalUi";
 import { PortalCard, PortalEmpty } from "./PortalShell";
+import ConfettiBurst from "./ConfettiBurst";
 
 type HomeworkItem = {
   id: number;
@@ -108,9 +109,23 @@ export default function PortalHomework({
       status === "needs_revision" ||
       latest?.ai_verdict === "incorrect" ||
       latest?.ai_verdict === "partially_correct";
+    const celebrate =
+      latest?.ai_review_status === "done" &&
+      (latest.ai_verdict === "correct" || (latest.ai_score != null && latest.ai_score >= 85));
+
+    const shareText =
+      `Привет! Проверил ДЗ за ${formatRuDate(detail.lesson_date)}.\n` +
+      `${AI_VERDICT_LABEL[latest?.ai_verdict || ""] || latest?.ai_verdict || ""}` +
+      (latest?.ai_score != null && latest?.ai_verdict !== "unclear" ? ` · ${latest.ai_score}%` : "") +
+      (latest?.ai_feedback ? `\n\n${latest.ai_feedback.slice(0, 400)}` : "");
+
+    const tutorShareHref = detail.tutor_telegram_url
+      ? `${detail.tutor_telegram_url}${detail.tutor_telegram_url.includes("?") ? "&" : "?"}text=${encodeURIComponent(shareText)}`
+      : "";
 
     return (
       <>
+        <ConfettiBurst active={celebrate} />
         <button
           type="button"
           onClick={onBack}
@@ -223,9 +238,9 @@ export default function PortalHomework({
               </div>
             )}
             {(latest.ai_review_status === "pending" || latest.ai_review_status === "running") && (
-              <div className="p-4 rounded-xl border border-sky-200 bg-sky-50 text-sm text-sky-950">
+              <div className="p-4 rounded-xl border border-sky-200 bg-sky-50 text-sm text-sky-950 ai-checking">
                 <div className="flex items-center gap-2">
-                  <span className="inline-block w-2 h-2 rounded-full bg-sky-500 animate-pulse" />
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-sky-500 animate-pulse" />
                   <p className="font-semibold">AI проверяет решение…</p>
                 </div>
                 <p className="mt-1 text-sky-800/80 text-xs">Обычно 10–30 секунд</p>
@@ -245,6 +260,16 @@ export default function PortalHomework({
                 <p className="mt-3 text-xs opacity-75">
                   Предварительная оценка AI. Репетитор может подтвердить или изменить.
                 </p>
+                {detail.tutor_telegram_url && (
+                  <a
+                    href={tutorShareHref}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 inline-flex w-full justify-center px-3 py-2.5 rounded-xl bg-[#229ED9] text-white text-sm font-semibold"
+                  >
+                    Показать репетитору в Telegram
+                  </a>
+                )}
               </div>
             )}
             {latest.ai_review_status === "skipped" && latest.ai_feedback && (
@@ -445,7 +470,7 @@ export default function PortalHomework({
                 <button
                   type="button"
                   onClick={() => onSelect(h.id)}
-                  className={`w-full text-left rounded-2xl border bg-white p-4 shadow-sm shadow-slate-200/40 transition hover:border-brand-blue/30 hover:shadow-md ${
+                  className={`w-full text-left rounded-2xl border bg-white p-4 shadow-sm shadow-slate-200/40 transition hover:border-brand-blue/30 hover:shadow-md portal-rise ${
                     todo ? "border-amber-200/80" : "border-slate-200/80"
                   }`}
                 >

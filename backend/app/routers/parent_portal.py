@@ -10,20 +10,33 @@ from sqlalchemy.orm import Session
 
 from app.auth import create_parent_portal_session_token
 from app.database import get_db
-from app.models import Homework, HomeworkSubmission, Lesson, LessonPackage, LessonStatus, Student, User, PaymentReceipt
+from app.models import (
+    Homework,
+    HomeworkSubmission,
+    Lesson,
+    LessonPackage,
+    LessonRescheduleRequest,
+    LessonStatus,
+    Student,
+    User,
+    PaymentReceipt,
+)
 from app.parent_portal_cookies import clear_parent_portal_cookie, set_parent_portal_cookie
 from app.parent_portal_dependencies import get_current_parent_student
+from app.services.portal_student import telegram_url
 from app.schemas import (
     ParentPortalLoginIn,
     ParentPortalOut,
     ParentPortalPackageOut,
     ParentHomeworkStatusOut,
     ParentMonthlyReportOut,
+    ParentRescheduleIn,
     PaymentIntentOut,
     PortalLessonOut,
     PortalPaymentIntentIn,
     ParentPaymentDetailsOut,
     PaymentReceiptOut,
+    PortalRescheduleOut,
 )
 from app.services.parent_report_service import build_parent_monthly_report, resolve_month
 from app.services.parent_report_pdf import generate_parent_report_pdf, read_parent_report_pdf_bytes
@@ -52,6 +65,7 @@ def _client_ip(request: Request) -> str:
 
 
 def _parent_out(student: Student, tutor: User | None) -> ParentPortalOut:
+    tg = (getattr(tutor, "contact_telegram", "") if tutor else "") or ""
     return ParentPortalOut(
         student_id=student.id,
         student_name=student.name,
@@ -60,6 +74,7 @@ def _parent_out(student: Student, tutor: User | None) -> ParentPortalOut:
         parent_name=student.parent_name or "",
         balance=float(student.balance or 0),
         tutor_name=tutor.name if tutor else "",
+        tutor_telegram_url=telegram_url(tg),
     )
 
 
@@ -138,6 +153,75 @@ def parent_portal_lessons(
         )
         for l in rows
     ]
+
+
+@router.post("/reschedule", response_model=PortalRescheduleOut, status_code=201)
+def parent_portal_reschedule(
+    data: ParentRescheduleIn,
+    student: Student = Depends(get_current_parent_student),
+    db: Session = Depends(get_db),
+):
+    lesson = (
+        db.query(Lesson)
+        .filter(Lesson.id == data.lesson_id, Lesson.student_id == student.id)
+        .first()
+    )
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    if lesson.is_conducted:
+        raise HTTPException(status_code=400, detail="Урок уже проведён")
+    pending = (
+        db.query(LessonRescheduleRequest)
+        .filter(
+            LessonRescheduleRequest.lesson_id == lesson.id,
+            LessonRescheduleRequest.student_id == student.id,
+            LessonRescheduleRequest.status == "pending",
+        )
+        .first()
+    )
+    if pending:
+        raise HTTPException(status_code=400, detail="Запрос уже отправлен")
+
+    msg = (data.message or "").strip()[:1000]
+    if not msg:
+        msg = "Родитель просит перенести урок"
+    else:
+        msg = f"[родитель] {msg}"
+
+    req = LessonRescheduleRequest(
+        lesson_id=lesson.id,
+        student_id=student.id,
+        tutor_id=student.tutor_id,
+        message=msg,
+        preferred_date=data.preferred_date,
+        preferred_time=(data.preferred_time or "").strip()[:5],
+        status="pending",
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    tutor = db.query(User).filter(User.id == student.tutor_id).first()
+    if tutor:
+        try:
+            from app.services.notifications import notify_user
+
+            notify_user(
+                db,
+                tutor,
+                kind="reschedule_request",
+                ref_key=f"reschedule:{req.id}",
+                subject="RepetCRM: родитель просит перенос",
+                body=(
+                    f"Родитель ({student.parent_name or student.name}) просит перенести урок "
+                    f"{lesson.lesson_date} {lesson.lesson_time or ''}.\n{msg}"
+                ).strip(),
+            )
+            db.commit()
+        except Exception:
+            pass
+
+    return PortalRescheduleOut.model_validate(req)
 
 
 @router.get("/packages", response_model=list[ParentPortalPackageOut])

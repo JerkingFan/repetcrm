@@ -576,6 +576,14 @@ export const api = {
       request<{ job_id: string; status: string }>(`/lessons/${id}/generate-homework-job`, {
         method: "POST",
       }),
+    voiceBrief: (id: number, brief: string, start_generation = true) =>
+      request<{ brief: string; job_id: string | null; status: string }>(
+        `/lessons/${id}/voice-brief`,
+        {
+          method: "POST",
+          body: JSON.stringify({ brief, start_generation }),
+        }
+      ),
     getJob: (jobId: string) =>
       request<{
         job_id: string;
@@ -763,14 +771,22 @@ export const api = {
         homework_reviewed: number;
         homework_needs_revision: number;
         streak_days: number;
+        streak_at_risk?: boolean;
         avg_ai_score: number | null;
         topics: string[];
+        topic_heat?: Array<{
+          topic: string;
+          avg_score: number;
+          samples: number;
+          level: string;
+        }>;
         recent_scores: Array<{
           homework_id: number;
           score: number;
           verdict: string;
           date: string;
         }>;
+        review_hint?: string;
       }>("/portal/progress"),
     lessons: () =>
       portalRequest<
@@ -926,6 +942,7 @@ export const api = {
         parent_name: string;
         balance: number;
         tutor_name: string;
+        tutor_telegram_url?: string;
       }>;
     },
     me: () =>
@@ -937,6 +954,7 @@ export const api = {
         parent_name: string;
         balance: number;
         tutor_name: string;
+        tutor_telegram_url?: string;
       }>("/parent-portal/me"),
     lessons: () =>
       parentPortalRequest<
@@ -986,9 +1004,27 @@ export const api = {
         topics_covered: string[];
         payments_total: number;
         balance: number;
+        homework_total?: number;
+        homework_done_pct?: number;
+        tutor_note?: string;
+        snapshot_line?: string;
         homework: Array<{ lesson_date: string; status: string; status_label: string }>;
       }>(`/parent-portal/report${qs}`);
     },
+    requestReschedule: (data: {
+      lesson_id: number;
+      message?: string;
+      preferred_date?: string | null;
+      preferred_time?: string;
+    }) =>
+      parentPortalRequest<{
+        id: number;
+        lesson_id: number;
+        status: string;
+      }>("/parent-portal/reschedule", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
     reportPdfUrl: (month?: string) => {
       const qs = month ? `?month=${encodeURIComponent(month)}` : "";
       return `${getApiUrl()}/parent-portal/report.pdf${qs}`;

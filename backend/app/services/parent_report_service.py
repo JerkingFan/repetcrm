@@ -166,9 +166,30 @@ def build_parent_monthly_report(
         .scalar()
     )
 
+    month_label = _month_label(month)
+    homework_done = sum(1 for h in homework_items if h.status in ("submitted", "reviewed"))
+    homework_total = len(homework_items)
+    done_pct = int(round(100 * homework_done / homework_total)) if homework_total else 0
+
+    if conducted and topics:
+        tutor_note = (
+            f"За {month_label.split()[0]} прошли: {', '.join(topics[:3])}"
+            + ("…" if len(topics) > 3 else "")
+            + f". Домашние сданы на {done_pct}%."
+        )
+    elif conducted:
+        tutor_note = f"Проведено уроков: {conducted}. ДЗ сдано на {done_pct}%."
+    else:
+        tutor_note = "В этом месяце уроков пока не было."
+
+    snapshot_line = (
+        f"{conducted} ур. · ДЗ {done_pct}% · "
+        + (topics[0] if topics else "темы появятся после занятий")
+    )
+
     return ParentMonthlyReportOut(
         month=month,
-        month_label=_month_label(month),
+        month_label=month_label,
         student_name=student.name,
         tutor_name=tutor.name or "",
         subject=student.subject or "",
@@ -180,6 +201,10 @@ def build_parent_monthly_report(
         topics_covered=topics[:30],
         payments_total=float(payments_total or 0),
         balance=float(student.balance or 0),
+        homework_total=homework_total,
+        homework_done_pct=done_pct,
+        tutor_note=tutor_note,
+        snapshot_line=snapshot_line,
     )
 
 

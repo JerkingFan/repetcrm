@@ -707,9 +707,23 @@ class PortalProgressOut(BaseModel):
     homework_reviewed: int = 0
     homework_needs_revision: int = 0
     streak_days: int = 0
+    streak_at_risk: bool = False
     avg_ai_score: Optional[float] = None
     topics: list[str] = []
+    topic_heat: list[dict] = []  # {topic, avg_score, samples, level}
     recent_scores: list[dict] = []
+    review_hint: str = ""
+
+
+class LessonVoiceBriefIn(BaseModel):
+    brief: str = Field(min_length=3, max_length=2000)
+    start_generation: bool = True
+
+
+class LessonVoiceBriefOut(BaseModel):
+    brief: str
+    job_id: Optional[str] = None
+    status: str = "saved"
 
 
 class PortalRescheduleIn(BaseModel):
@@ -774,6 +788,14 @@ class ParentPortalOut(BaseModel):
     parent_name: str
     balance: float
     tutor_name: str = ""
+    tutor_telegram_url: str = ""
+
+
+class ParentRescheduleIn(BaseModel):
+    lesson_id: int
+    message: str = Field(default="", max_length=1000)
+    preferred_date: Optional[date] = None
+    preferred_time: str = Field(default="", max_length=5)
 
 
 class ParentPortalPackageOut(BaseModel):
@@ -825,6 +847,10 @@ class ParentMonthlyReportOut(BaseModel):
     topics_covered: list[str]
     payments_total: float
     balance: float
+    homework_total: int = 0
+    homework_done_pct: int = 0
+    tutor_note: str = ""
+    snapshot_line: str = ""
 
 
 class PortalPaymentIntentIn(BaseModel):

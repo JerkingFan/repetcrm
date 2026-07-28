@@ -56,6 +56,9 @@ function ParentPortalContent() {
   >([]);
   const [submittingPay, setSubmittingPay] = useState(false);
   const [paySuccess, setPaySuccess] = useState("");
+  const [rescheduleMsg, setRescheduleMsg] = useState("");
+  const [rescheduleLessonId, setRescheduleLessonId] = useState<number | null>(null);
+  const [rescheduleBusy, setRescheduleBusy] = useState(false);
 
   const loadData = async () => {
     const me = await api.parentPortal.me();
@@ -99,6 +102,11 @@ function ParentPortalContent() {
   const activePackage = useMemo(
     () => packages.find((p) => p.is_active && p.lessons_remaining > 0),
     [packages]
+  );
+
+  const nextUpcoming = useMemo(
+    () => lessons.find((l) => !l.is_conducted) || null,
+    [lessons]
   );
   const nextLesson = lessons.find((l) => !l.is_conducted) || lessons[0] || null;
   const hwPending = homeworkStatus.filter(
@@ -176,6 +184,47 @@ function ParentPortalContent() {
               )}
             </div>
           </PortalCard>
+
+          {report && (
+            <PortalCard className="p-5 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
+                    Карточка месяца
+                  </p>
+                  <p className="font-semibold text-slate-900 mt-0.5">{report.month_label}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTab("report")}
+                  className="text-xs font-semibold text-brand-blue"
+                >
+                  Отчёт →
+                </button>
+              </div>
+              <p className="text-sm text-slate-700">
+                {report.snapshot_line ||
+                  `${report.lessons_conducted} ур. · ДЗ ${report.homework_done_pct ?? 0}%`}
+              </p>
+              {report.tutor_note && (
+                <p className="text-sm text-slate-600 bg-slate-50 rounded-xl p-3 leading-relaxed">
+                  {report.tutor_note}
+                </p>
+              )}
+              {info.tutor_telegram_url && nextUpcoming && (
+                <a
+                  href={`${info.tutor_telegram_url}?text=${encodeURIComponent(
+                    `Здравствуйте! Можно перенести урок ${formatRuDate(nextUpcoming.lesson_date)} в ${formatLessonTime(nextUpcoming.lesson_time)}?`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-center px-4 py-2.5 rounded-xl bg-[#229ED9] text-white text-sm font-semibold"
+                >
+                  Написать репетитору про перенос
+                </a>
+              )}
+            </PortalCard>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <button
@@ -375,22 +424,95 @@ function ParentPortalContent() {
               .ics
             </a>
           </PortalCard>
+          {paySuccess && tab === "schedule" && (
+            <Alert type="success" message={paySuccess} onClose={() => setPaySuccess("")} />
+          )}
           <PortalCard>
             {lessons.length === 0 ? (
               <PortalEmpty title="Ближайших занятий нет" />
             ) : (
               <ul className="divide-y divide-slate-100">
                 {lessons.map((l) => (
-                  <li key={l.id} className="px-5 py-3.5 flex justify-between text-sm">
-                    <span className="font-medium">
-                      {formatRuDate(l.lesson_date)} · {formatLessonTime(l.lesson_time)}
-                    </span>
-                    <span className="text-slate-500">{l.duration_minutes} мин</span>
+                  <li key={l.id} className="px-5 py-3.5 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="font-medium">
+                        {formatRuDate(l.lesson_date)} · {formatLessonTime(l.lesson_time)}
+                      </span>
+                      <span className="text-slate-500">{l.duration_minutes} мин</span>
+                    </div>
+                    {!l.is_conducted && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRescheduleLessonId(l.id);
+                          setRescheduleMsg("");
+                        }}
+                        className="text-xs font-semibold text-brand-blue"
+                      >
+                        Запросить перенос
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
             )}
           </PortalCard>
+
+          {rescheduleLessonId && (
+            <PortalCard className="p-4 space-y-3">
+              <p className="font-semibold text-slate-800">Запрос на перенос</p>
+              <textarea
+                value={rescheduleMsg}
+                onChange={(e) => setRescheduleMsg(e.target.value)}
+                placeholder="Например: в этот день врач / соревнования"
+                className="w-full px-3 py-2 rounded-xl border text-sm min-h-[72px]"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRescheduleLessonId(null)}
+                  className="flex-1 py-2.5 rounded-xl border text-sm"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  disabled={rescheduleBusy}
+                  onClick={async () => {
+                    setRescheduleBusy(true);
+                    setError("");
+                    try {
+                      await api.parentPortal.requestReschedule({
+                        lesson_id: rescheduleLessonId,
+                        message: rescheduleMsg || "Просим перенести урок",
+                      });
+                      setPaySuccess("Запрос на перенос отправлен репетитору");
+                      setRescheduleLessonId(null);
+                    } catch (e) {
+                      setError(e instanceof ApiError ? e.message : "Не удалось отправить");
+                    } finally {
+                      setRescheduleBusy(false);
+                    }
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-brand-blue text-white text-sm font-semibold disabled:opacity-50"
+                >
+                  {rescheduleBusy ? "…" : "Отправить"}
+                </button>
+              </div>
+              {info.tutor_telegram_url && (
+                <a
+                  href={`${info.tutor_telegram_url}?text=${encodeURIComponent(
+                    rescheduleMsg || "Здравствуйте! Можно перенести ближайший урок?"
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-center text-sm font-semibold text-[#229ED9]"
+                >
+                  Или написать в Telegram →
+                </a>
+              )}
+            </PortalCard>
+          )}
         </>
       )}
 
@@ -406,10 +528,22 @@ function ParentPortalContent() {
             />
           </div>
           {report ? (
-            <div className="space-y-2 text-sm">
+            <div className="space-y-3 text-sm">
+              {report.tutor_note && (
+                <div className="rounded-xl bg-brand-blue/5 border border-brand-blue/15 p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-blue">
+                    Коротко
+                  </p>
+                  <p className="mt-1 text-slate-800 leading-relaxed">{report.tutor_note}</p>
+                </div>
+              )}
               <p>
                 Уроков проведено: <strong>{report.lessons_conducted}</strong> из{" "}
                 {report.lessons_total}
+              </p>
+              <p>
+                ДЗ сдано: <strong>{report.homework_done_pct ?? 0}%</strong>
+                {report.homework_total != null ? ` (${report.homework_total} заданий)` : ""}
               </p>
               <p>
                 Оплаты за месяц: <strong>{formatMoney(report.payments_total)}</strong> · баланс{" "}

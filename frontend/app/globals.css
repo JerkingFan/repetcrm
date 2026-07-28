@@ -24,7 +24,100 @@ body {
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
 }
 
-/* Кабинет ученика: читаемое ДЗ */
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-10vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+.confetti-piece {
+  animation: confetti-fall 2.1s ease-in forwards;
+}
+
+@keyframes streak-pop {
+  0% {
+    transform: scale(0.7);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.streak-pop {
+  animation: streak-pop 0.55s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+@keyframes streak-dot-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+.streak-dot {
+  animation: streak-dot-in 0.35s ease both;
+}
+
+@keyframes portal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.portal-rise {
+  animation: portal-rise 0.4s ease both;
+}
+
+@keyframes portal-focus-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.portal-focus-item {
+  animation: portal-focus-in 0.35s ease both;
+}
+
+@keyframes ai-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(14, 165, 233, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(14, 165, 233, 0);
+  }
+}
+
+.ai-checking {
+  animation: ai-pulse-ring 1.4s ease-out infinite;
+}
+
 .portal-hw {
   line-height: 1.55;
 }

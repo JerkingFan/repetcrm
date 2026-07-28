@@ -28,6 +28,8 @@ from app.schemas import (
     LessonSeriesOut,
     LessonRecurrenceIn,
     QuickConductOut,
+    LessonVoiceBriefIn,
+    LessonVoiceBriefOut,
 )
 from app.services.homework_prefs import (
     apply_prefs_to_checklist,
@@ -512,6 +514,66 @@ async def generate_lesson_homework(
         configured_provider=cfg.homework_ai_provider,
         configured_model=cfg.openrouter_model,
     )
+
+
+@router.post("/lessons/{lesson_id}/voice-brief", response_model=LessonVoiceBriefOut)
+async def lesson_voice_brief(
+    lesson_id: int,
+    data: LessonVoiceBriefIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Save spoken brief into homework prefs and optionally start AI generation."""
+    lesson = get_lesson_or_404(lesson_id, user, db)
+    brief = (data.brief or "").strip()[:2000]
+    if len(brief) < 3:
+        raise HTTPException(status_code=400, detail="Слишком короткий голос/текст")
+
+    prefs = parse_homework_prefs(lesson.homework_prefs)
+    prefs["special_notes"] = brief
+    import re
+
+    m = re.search(r"(\d+)\s*(задач|упражнен|пример)", brief.lower())
+    if m:
+        n = int(m.group(1))
+        prefs["volume"] = "minimal" if n <= 3 else ("extended" if n >= 8 else "standard")
+    lesson.homework_prefs = serialize_homework_prefs(prefs)
+    db.commit()
+
+    job_id = None
+    status = "saved"
+    if data.start_generation:
+        if not lesson.is_conducted:
+            raise HTTPException(
+                status_code=400,
+                detail="Сначала отметьте занятие проведённым",
+            )
+        if not lesson.checklist_items:
+            # seed one topic from brief
+            topic = brief.split(",")[0].strip()[:200] or "Практика"
+            db.add(
+                ChecklistItem(
+                    lesson_id=lesson.id,
+                    topic=topic,
+                    work_type="practice",
+                    difficulty="medium",
+                    understanding=3,
+                )
+            )
+            db.commit()
+        job = await job_queue.enqueue_unique(
+            owner_user_id=user.id,
+            key_type="lesson",
+            key_value=lesson_id,
+            job_type="generate_homework",
+            arq_task=ARQ_TASK_GENERATE_HOMEWORK,
+            arq_args=(lesson_id, user.id),
+            inprocess_runner=lambda: run_generate_homework(lesson_id, user.id),
+        )
+        job_id = job.id
+        status = job.status
+
+    return LessonVoiceBriefOut(brief=brief, job_id=job_id, status=status)
 
 
 @router.post("/lessons/{lesson_id}/generate-homework-job", response_model=HomeworkJobStartOut, status_code=202)

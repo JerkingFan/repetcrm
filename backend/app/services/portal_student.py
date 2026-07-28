@@ -163,36 +163,82 @@ def compute_progress(db: Session, student: Student) -> dict:
     days = sorted({s.submitted_at.date() for s in subs if s.submitted_at}, reverse=True)
     streak = 0
     cursor = date.today()
+    streak_at_risk = False
     if days and days[0] < cursor - timedelta(days=1):
         streak = 0
     else:
         if days and days[0] == cursor - timedelta(days=1):
+            streak_at_risk = True  # last submit yesterday — today still open
             cursor = days[0]
+        elif days and days[0] == cursor:
+            streak_at_risk = False
         for d in days:
             if d == cursor:
                 streak += 1
                 cursor = cursor - timedelta(days=1)
             elif d < cursor:
                 break
+        if streak > 0 and date.today() not in {s.submitted_at.date() for s in subs if s.submitted_at}:
+            streak_at_risk = True
 
     topics: list[str] = []
+    topic_scores: dict[str, list[int]] = {}
     if lesson_ids:
         items = (
-            db.query(ChecklistItem.topic)
+            db.query(ChecklistItem.topic, Lesson.id)
             .join(Lesson, ChecklistItem.lesson_id == Lesson.id)
             .filter(Lesson.student_id == student.id, Lesson.is_conducted.is_(True))
             .order_by(Lesson.lesson_date.desc())
-            .limit(40)
+            .limit(80)
             .all()
         )
+        lesson_topics: dict[int, list[str]] = {}
         seen: set[str] = set()
-        for (topic,) in items:
+        for topic, lid in items:
             t = (topic or "").strip()
-            if t and t.lower() not in seen:
+            if not t:
+                continue
+            lesson_topics.setdefault(lid, []).append(t)
+            if t.lower() not in seen:
                 seen.add(t.lower())
                 topics.append(t)
             if len(topics) >= 12:
                 break
+
+        hw_by_lesson = {h.lesson_id: h for h in homeworks}
+        for lid, tlist in lesson_topics.items():
+            hw = hw_by_lesson.get(lid)
+            if not hw:
+                continue
+            st = by_hw.get(hw.id)
+            if not st or st.ai_score is None or st.ai_review_status != "done":
+                continue
+            for t in tlist:
+                topic_scores.setdefault(t, []).append(int(st.ai_score))
+
+    topic_heat: list[dict] = []
+    for t, vals in topic_scores.items():
+        if not vals:
+            continue
+        avg_t = round(sum(vals) / len(vals), 1)
+        if avg_t >= 75:
+            level = "strong"
+        elif avg_t >= 50:
+            level = "ok"
+        else:
+            level = "weak"
+        topic_heat.append(
+            {"topic": t, "avg_score": avg_t, "samples": len(vals), "level": level}
+        )
+    topic_heat.sort(key=lambda x: x["avg_score"])
+
+    weak = [x["topic"] for x in topic_heat if x["level"] == "weak"][:3]
+    if weak:
+        review_hint = "На следующем уроке повторить: " + ", ".join(weak)
+    elif topics:
+        review_hint = f"Сейчас в фокусе: {topics[0]}"
+    else:
+        review_hint = ""
 
     avg = round(sum(scores) / len(scores), 1) if scores else None
     return {
@@ -201,7 +247,10 @@ def compute_progress(db: Session, student: Student) -> dict:
         "homework_reviewed": reviewed,
         "homework_needs_revision": needs_rev,
         "streak_days": streak,
+        "streak_at_risk": bool(streak_at_risk and streak > 0),
         "avg_ai_score": avg,
         "topics": topics,
+        "topic_heat": topic_heat[:10],
         "recent_scores": recent[:8],
+        "review_hint": review_hint,
     }

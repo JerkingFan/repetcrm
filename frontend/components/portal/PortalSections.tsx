@@ -51,20 +51,24 @@ export function PortalHome({
   student,
   nextLesson,
   pendingHomework,
+  streakDays,
   onOpenTab,
   onOpenHomework,
+  onOpenFocus,
 }: {
   student: Student;
   nextLesson: Lesson | null;
   pendingHomework: HomeworkItem[];
+  streakDays?: number;
   onOpenTab: (t: PortalTab) => void;
   onOpenHomework: (id: number) => void;
+  onOpenFocus?: () => void;
 }) {
   const showBalance = student.show_balance === true;
 
   return (
     <>
-      <PortalCard className="overflow-hidden">
+      <PortalCard className="overflow-hidden portal-rise">
         <div className="bg-gradient-to-br from-brand-blue to-[#2a4db0] px-5 py-5 text-white">
           <p className="text-sm text-white/75">Привет,</p>
           <h2 className="text-2xl font-bold tracking-tight">{student.name}</h2>
@@ -72,18 +76,27 @@ export function PortalHome({
             {[student.subject, student.grade].filter(Boolean).join(" · ")}
             {student.tutor_name ? ` · ${student.tutor_name}` : ""}
           </p>
-          <div className="mt-4">
-            {showBalance ? (
-              <>
-                <p className="text-[11px] uppercase tracking-wide text-white/60">Баланс</p>
-                <p className="text-lg font-semibold">{formatMoney(student.balance)}</p>
-              </>
-            ) : (
-              <p className="text-sm text-white/75">Оплату обычно вносит родитель</p>
-            )}
-          </div>
+          {showBalance && (
+            <div className="mt-4">
+              <p className="text-[11px] uppercase tracking-wide text-white/60">Баланс</p>
+              <p className="text-lg font-semibold">{formatMoney(student.balance)}</p>
+            </div>
+          )}
         </div>
       </PortalCard>
+
+      {(streakDays ?? 0) > 0 && (
+        <button
+          type="button"
+          onClick={() => onOpenTab("progress")}
+          className="w-full text-left rounded-2xl border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 px-4 py-3"
+        >
+          <p className="text-sm font-bold text-orange-900">
+            Серия {streakDays} {streakDays === 1 ? "день" : "дней"} 🔥
+          </p>
+          <p className="text-xs text-orange-800/80 mt-0.5">Не сломай — открой прогресс</p>
+        </button>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <button
@@ -96,11 +109,11 @@ export function PortalHome({
         </button>
         <button
           type="button"
-          onClick={() => onOpenTab("progress")}
-          className="rounded-2xl border border-slate-200/80 bg-white p-4 text-left shadow-sm hover:border-brand-blue/30 transition"
+          onClick={() => onOpenFocus?.()}
+          className="rounded-2xl border border-slate-200/80 bg-slate-900 p-4 text-left shadow-sm text-white"
         >
-          <p className="text-sm font-semibold text-brand-blue">Прогресс</p>
-          <p className="text-sm text-slate-500 mt-1">Темы и оценки</p>
+          <p className="text-sm font-semibold">Фокус</p>
+          <p className="text-sm text-white/70 mt-1">Lo-fi + задачи</p>
         </button>
       </div>
 
