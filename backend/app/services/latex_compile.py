@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import io
 import logging
 import shutil
 import subprocess
+import tarfile
 import tempfile
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, urlunparse
 
 import httpx
 
@@ -85,8 +87,29 @@ def compile_tex_local(tex: str, out_path: str, *, timeout: int = 120) -> bool:
     return False
 
 
-def compile_tex_online(tex: str, out_path: str, *, timeout: float = 20.0) -> bool:
-    """latexonline.cc — облачная компиляция (короткий таймаут → fallback на fpdf)."""
+def _latex_online_base() -> str:
+    """https://latexonline.cc/compile → https://latexonline.cc"""
+    raw = (settings.latex_online_url or "https://latexonline.cc/compile").rstrip("/")
+    parsed = urlparse(raw)
+    # если в URL уже /compile — берём origin
+    path = parsed.path.rstrip("/")
+    if path.endswith("/compile"):
+        path = path[: -len("/compile")] or ""
+    return urlunparse((parsed.scheme, parsed.netloc, path, "", "", "")).rstrip("/")
+
+
+def _tex_tar_bytes(tex: str) -> bytes:
+    payload = tex.encode("utf-8")
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        info = tarfile.TarInfo(name="main.tex")
+        info.size = len(payload)
+        tar.addfile(info, io.BytesIO(payload))
+    return buf.getvalue()
+
+
+def compile_tex_online(tex: str, out_path: str, *, timeout: float = 55.0) -> bool:
+    """latexonline.cc — качественный PDF с формулами (POST tar, без лимита URL)."""
     if not settings.latex_online_compile:
         return False
     try:
@@ -94,25 +117,43 @@ def compile_tex_online(tex: str, out_path: str, *, timeout: float = 20.0) -> boo
     except CircuitOpenError:
         logger.warning("LaTeX online skipped — circuit open")
         return False
-    base = settings.latex_online_url.rstrip("/")
-    # pdflatex + T2A/fontenc — кириллица на latexonline.cc
-    url = f"{base}?command=pdflatex&text={quote(tex)}"
-    if len(url) > 12000:
-        logger.warning("LaTeX online: документ слишком длинный для URL")
-        return False
+
+    base = _latex_online_base()
+    # POST /data — длинные ДЗ; GET /compile?text= — только короткие
+    data_url = f"{base}/data?target=main.tex&command=pdflatex"
     try:
+        tar_bytes = _tex_tar_bytes(tex)
         with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            r = client.get(url)
+            r = client.post(
+                data_url,
+                files={"file": ("archive.tar", tar_bytes, "application/x-tar")},
+            )
             if r.status_code == 200 and r.content[:4] == b"%PDF":
                 Path(out_path).write_bytes(r.content)
-                logger.info("PDF (latexonline.cc): %s", out_path)
+                logger.info("PDF (latexonline POST): %s (%s bytes)", out_path, len(r.content))
                 _latex_circuit.record_success()
                 return True
-            logger.warning(
-                "LaTeX online HTTP %s: %s",
-                r.status_code,
-                (r.text or "")[:300],
-            )
+
+            # fallback GET для коротких документов
+            compile_url = f"{base}/compile?command=pdflatex&text={quote(tex)}"
+            if len(compile_url) <= 12000:
+                r2 = client.get(compile_url)
+                if r2.status_code == 200 and r2.content[:4] == b"%PDF":
+                    Path(out_path).write_bytes(r2.content)
+                    logger.info("PDF (latexonline GET): %s", out_path)
+                    _latex_circuit.record_success()
+                    return True
+                logger.warning(
+                    "LaTeX online GET HTTP %s: %s",
+                    r2.status_code,
+                    (r2.text or "")[:300],
+                )
+            else:
+                logger.warning(
+                    "LaTeX online POST HTTP %s: %s",
+                    r.status_code,
+                    (r.text or "")[:300],
+                )
             _latex_circuit.record_failure()
     except Exception as e:
         logger.warning("LaTeX online error: %s", e)
@@ -121,7 +162,7 @@ def compile_tex_online(tex: str, out_path: str, *, timeout: float = 20.0) -> boo
 
 
 def compile_tex_to_pdf(tex: str, out_path: str) -> bool:
-    # Локальный TeX быстрее и надёжнее облака; в Docker обычно нет — тогда short online.
-    if compile_tex_local(tex, out_path, timeout=45):
+    # Сначала облачный LaTeX (качество как раньше), потом локальный TeX.
+    if compile_tex_online(tex, out_path, timeout=55.0):
         return True
-    return compile_tex_online(tex, out_path, timeout=20.0)
+    return compile_tex_local(tex, out_path, timeout=90)

@@ -784,7 +784,7 @@ export default function LessonDetailPage() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-brand-green">{pdfStatus}</p>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Обычно до 30 секунд. Если дольше — обновите страницу и попробуйте снова.
+                    Качественный PDF с формулами — обычно 20–55 секунд.
                   </p>
                 </div>
               </div>

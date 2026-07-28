@@ -205,7 +205,7 @@ async def download_pdf(homework_id: int, user: User = Depends(get_current_user),
                     grade=lesson.student.grade or "",
                     homework_prefs=prefs,
                 ),
-                timeout=55.0,
+                timeout=75.0,
             )
         except asyncio.TimeoutError:
             raise HTTPException(

@@ -90,8 +90,10 @@ def serve_homework_pdf_cached(
     if not hw:
         raise HTTPException(status_code=404, detail="Homework not found")
 
-    path = _safe_join(_media_root(), f"homework_{homework_id}.pdf")
-    if not path or not os.path.isfile(path):
+    from app.services.pdf import homework_pdf_path
+
+    path = homework_pdf_path(homework_id)
+    if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="PDF not found")
 
     return FileResponse(path, media_type="application/pdf")

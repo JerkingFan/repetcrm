@@ -28,16 +28,22 @@ def ensure_media_dir():
 
 
 def homework_pdf_path(homework_id: int) -> str:
-    return os.path.join(settings.media_dir, f"homework_{homework_id}.pdf")
+    # v3 — сброс кэша уродливого fpdf-fallback после фикса LaTeX POST
+    return os.path.join(settings.media_dir, f"homework_{homework_id}_v3.pdf")
 
 
 def invalidate_homework_pdf(homework_id: int) -> None:
-    cached = homework_pdf_path(homework_id)
-    if os.path.isfile(cached):
-        try:
-            os.remove(cached)
-        except OSError:
-            pass
+    for name in (
+        f"homework_{homework_id}_v3.pdf",
+        f"homework_{homework_id}.pdf",
+        f"homework_{homework_id}_v2.pdf",
+    ):
+        cached = os.path.join(settings.media_dir, name)
+        if os.path.isfile(cached):
+            try:
+                os.remove(cached)
+            except OSError:
+                pass
 
 
 def homework_pdf_cache_fresh(cached: str, updated_at: datetime | None) -> bool:
@@ -146,6 +152,36 @@ def _pdf_plain_fallback(path: str, lesson_date: date, content: str) -> None:
     logger.info("PDF (текстовый fallback): %s", path)
 
 
+def _pdf_html_weasyprint(path: str, html: str, *, title: str = "Домашнее задание") -> bool:
+    """Красивый HTML→PDF (формулы как картинки из preview), лучше чем голый fpdf."""
+    try:
+        from weasyprint import HTML, CSS
+    except ImportError:
+        return False
+    if not html or len(html.strip()) < 20:
+        return False
+    wrapped = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{title}</title></head>
+<body>
+<style>
+  body {{ font-family: DejaVu Sans, sans-serif; font-size: 12pt; color: #1e293b; margin: 18mm; line-height: 1.45; }}
+  h1,h2,h3 {{ color: #1e3a8a; }}
+  .task, .homework-task {{ margin: 10px 0; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; }}
+  img {{ max-height: 1.4em; vertical-align: middle; }}
+  ol, ul {{ padding-left: 1.2em; }}
+</style>
+{html}
+</body></html>"""
+    try:
+        HTML(string=wrapped).write_pdf(path)
+        if os.path.isfile(path) and os.path.getsize(path) > 400:
+            logger.info("PDF (WeasyPrint HTML): %s", path)
+            return True
+    except Exception as e:
+        logger.warning("WeasyPrint PDF failed: %s", e)
+    return False
+
+
 def generate_homework_pdf(
     homework_id: int,
     student_name: str,
@@ -188,7 +224,15 @@ def generate_homework_pdf(
             )
             if compile_tex_to_pdf(tex, path):
                 return path
-            logger.warning("LaTeX compile не удался — текстовый PDF")
+            logger.warning("LaTeX compile не удался — пробуем HTML PDF")
+
+        # HTML-превью с формулами (лучше текстового fpdf)
+        from app.services.homework_output import homework_content_to_html
+
+        html = homework_content_to_html(text, render_math_images=True)
+        title = f"ДЗ · {student_name} · {lesson_date}"
+        if _pdf_html_weasyprint(path, html, title=title):
+            return path
 
         _pdf_plain_fallback(path, lesson_date, text)
         if not os.path.isfile(path) or os.path.getsize(path) < 200:
