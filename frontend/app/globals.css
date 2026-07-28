@@ -20,8 +20,11 @@ body {
   animation: pdf-progress-indeterminate 1.4s ease-in-out infinite;
 }
 
-.safe-area-pb {
-  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+.portal-shell {
+  background: var(
+    --portal-bg,
+    radial-gradient(ellipse at top, #e8eefc 0%, #f8fafc 45%, #f1f5f9 100%)
+  );
 }
 
 @keyframes confetti-fall {

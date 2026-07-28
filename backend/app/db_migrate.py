@@ -19,7 +19,7 @@ from app.database import engine
 logger = logging.getLogger(__name__)
 
 _ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
-_HEAD_REVISION = "b2c3d4e5f6a7"
+_HEAD_REVISION = "c3d4e5f6a7b8"
 
 
 def _alembic_config() -> Config:
@@ -157,6 +157,9 @@ _STUDENTS_SQLITE_COLUMN_DDLS: dict[str, str] = {
     "parent_phone": "VARCHAR(64) NOT NULL DEFAULT ''",
     "parent_notify_email": "BOOLEAN NOT NULL DEFAULT 1",
     "parent_portal_token": "VARCHAR(64)",
+    "portal_nickname": "VARCHAR(64) NOT NULL DEFAULT ''",
+    "portal_theme": "VARCHAR(32) NOT NULL DEFAULT 'ocean'",
+    "portal_avatar": "VARCHAR(32) NOT NULL DEFAULT 'rocket'",
 }
 
 _LESSONS_SQLITE_COLUMN_DDLS: dict[str, str] = {
@@ -451,16 +454,19 @@ def repair_legacy_schema() -> None:
 
 def _detect_legacy_revision(insp: Inspector) -> str:
     """Best-effort Alembic revision for a populated DB without alembic_version."""
-    if insp.has_table("payment_receipts"):
-        return _HEAD_REVISION
+    if insp.has_table("student_daily_challenges"):
+        return "c3d4e5f6a7b8"
+
+    if insp.has_table("lesson_reschedule_requests"):
+        return "b2c3d4e5f6a7"
 
     if insp.has_table("users"):
         user_cols = {c["name"] for c in insp.get_columns("users")}
         if "booking_slug" in user_cols or insp.has_table("trial_bookings"):
             return "e2f3a4b5c6d7"
 
-    if insp.has_table("lesson_reschedule_requests"):
-        return "b2c3d4e5f6a7"
+    if insp.has_table("payment_receipts"):
+        return "f3a4b5c6d7e8"
 
     if insp.has_table("homework_submissions"):
         hs_cols = {c["name"] for c in insp.get_columns("homework_submissions")}

@@ -2,6 +2,7 @@
 
 import { formatLessonTime } from "@/lib/calendar";
 import { formatMoney } from "@/lib/currency";
+import { avatarEmoji } from "@/lib/portalTheme";
 import {
   formatRuDate,
   formatRuWeekday,
@@ -15,12 +16,15 @@ import { PortalCard, PortalEmpty } from "./PortalShell";
 
 type Student = {
   name: string;
+  display_name?: string;
   subject: string;
   grade: string;
   balance: number;
   show_balance?: boolean;
   tutor_name: string;
   tutor_telegram_url?: string;
+  portal_avatar?: string;
+  portal_theme?: string;
 };
 
 type Lesson = {
@@ -69,13 +73,22 @@ export function PortalHome({
   return (
     <>
       <PortalCard className="overflow-hidden portal-rise">
-        <div className="bg-gradient-to-br from-brand-blue to-[#2a4db0] px-5 py-5 text-white">
-          <p className="text-sm text-white/75">Привет,</p>
-          <h2 className="text-2xl font-bold tracking-tight">{student.name}</h2>
-          <p className="text-sm text-white/80 mt-1">
-            {[student.subject, student.grade].filter(Boolean).join(" · ")}
-            {student.tutor_name ? ` · ${student.tutor_name}` : ""}
-          </p>
+        <div className="px-5 py-5 text-white" style={{ background: "var(--portal-hero)" }}>
+          <div className="flex items-start gap-3">
+            <span className="text-3xl leading-none drop-shadow-sm" aria-hidden>
+              {avatarEmoji(student.portal_avatar)}
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm text-white/75">Привет,</p>
+              <h2 className="text-2xl font-bold tracking-tight truncate">
+                {student.display_name || student.name}
+              </h2>
+              <p className="text-sm text-white/80 mt-1">
+                {[student.subject, student.grade].filter(Boolean).join(" · ")}
+                {student.tutor_name ? ` · ${student.tutor_name}` : ""}
+              </p>
+            </div>
+          </div>
           {showBalance && (
             <div className="mt-4">
               <p className="text-[11px] uppercase tracking-wide text-white/60">Баланс</p>

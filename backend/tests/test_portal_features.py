@@ -273,3 +273,72 @@ def test_portal_homework_submit(client):
     sub = client.post(f"/portal/homework/{hw_id}/submit", files=files, data={"comment": "Done"})
     assert sub.status_code == 200
     assert sub.json()["original_filename"] == "answer.pdf"
+
+
+def test_portal_customize_and_daily_challenge(client):
+    _register(client)
+    sid = _create_student(client, "DailyKid")
+    token = client.get(f"/students/{sid}/portal-link").json()["portal_token"]
+    client.post("/portal/session", json={"portal_token": token})
+
+    custom = client.put(
+        "/portal/customize",
+        json={"portal_nickname": "Fox", "portal_theme": "forest", "portal_avatar": "fox"},
+    )
+    assert custom.status_code == 200, custom.text
+    body = custom.json()
+    assert body["portal_nickname"] == "Fox"
+    assert body["portal_theme"] == "forest"
+    assert body["portal_avatar"] == "fox"
+    assert body["display_name"] == "Fox"
+
+    me = client.get("/portal/me")
+    assert me.status_code == 200
+    assert me.json()["portal_theme"] == "forest"
+
+    # No lesson today → daily challenge available
+    daily = client.get("/portal/daily")
+    assert daily.status_code == 200, daily.text
+    payload = daily.json()
+    assert payload["available"] is True
+    assert payload["lesson_today"] is False
+    assert payload["challenge"]
+    ch_id = payload["challenge"]["id"]
+    hint_q = payload["challenge"]["question"]
+    assert hint_q
+
+    wrong = client.post(f"/portal/daily/{ch_id}/answer", json={"answer": "totally-wrong-xyz"})
+    assert wrong.status_code == 200
+    assert wrong.json()["challenge"]["status"] in ("incorrect", "correct")
+
+    # Lesson today → challenge not offered
+    client.post(
+        "/lessons",
+        json={
+            "student_id": sid,
+            "lesson_date": date.today().isoformat(),
+            "lesson_time": "10:00",
+            "duration_minutes": 60,
+            "payment_amount": 0,
+            "is_paid": True,
+        },
+    )
+    # New student without today's challenge row yet with lesson — use fresh student
+    sid2 = _create_student(client, "LessonDay")
+    token2 = client.get(f"/students/{sid2}/portal-link").json()["portal_token"]
+    client.post("/portal/session", json={"portal_token": token2})
+    client.post(
+        "/lessons",
+        json={
+            "student_id": sid2,
+            "lesson_date": date.today().isoformat(),
+            "lesson_time": "10:00",
+            "duration_minutes": 60,
+            "payment_amount": 0,
+            "is_paid": True,
+        },
+    )
+    blocked = client.get("/portal/daily")
+    assert blocked.status_code == 200
+    assert blocked.json()["available"] is False
+    assert blocked.json()["reason"] == "lesson_today"

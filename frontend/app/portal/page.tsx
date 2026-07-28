@@ -9,6 +9,8 @@ import { formatLessonTime } from "@/lib/calendar";
 import Alert from "@/components/Alert";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import PortalBottomNav from "@/components/portal/PortalBottomNav";
+import PortalCustomize from "@/components/portal/PortalCustomize";
+import PortalDailyChallenge from "@/components/portal/PortalDailyChallenge";
 import PortalHomework from "@/components/portal/PortalHomework";
 import PortalProgress from "@/components/portal/PortalProgress";
 import PortalFocus from "@/components/portal/PortalFocus";
@@ -245,14 +247,24 @@ function PortalContent() {
     <PortalShell
       title={titles[tab].title}
       subtitle={titles[tab].subtitle}
+      theme={student.portal_theme || "ocean"}
       right={
-        <button
-          type="button"
-          onClick={logout}
-          className="text-xs font-semibold text-slate-500 hover:text-rose-600 px-2 py-1.5 rounded-lg border border-slate-200 bg-white shrink-0"
-        >
-          Выйти
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <PortalCustomize
+            student={student}
+            onSaved={(s) => {
+              setStudent(s);
+              setSuccess("Кабинет обновлён");
+            }}
+          />
+          <button
+            type="button"
+            onClick={logout}
+            className="text-xs font-semibold text-slate-500 hover:text-rose-600 px-2 py-1.5 rounded-lg border border-slate-200 bg-white"
+          >
+            Выйти
+          </button>
+        </div>
       }
     >
       {error && <Alert message={error} onClose={() => setError("")} />}
@@ -268,15 +280,23 @@ function PortalContent() {
       )}
 
       {tab === "home" && (
-        <PortalHome
-          student={student}
-          nextLesson={nextLesson}
-          pendingHomework={pendingHomework}
-          streakDays={progress?.streak_days}
-          onOpenTab={setTab}
-          onOpenHomework={openHomework}
-          onOpenFocus={() => setFocusOpen(true)}
-        />
+        <>
+          <PortalDailyChallenge
+            onSolved={() => {
+              api.portal.progress().then(setProgress).catch(() => {});
+              setSuccess("Стрик продолжается — задание дня засчитано");
+            }}
+          />
+          <PortalHome
+            student={student}
+            nextLesson={nextLesson}
+            pendingHomework={pendingHomework}
+            streakDays={progress?.streak_days}
+            onOpenTab={setTab}
+            onOpenHomework={openHomework}
+            onOpenFocus={() => setFocusOpen(true)}
+          />
+        </>
       )}
 
       {tab === "homework" && (

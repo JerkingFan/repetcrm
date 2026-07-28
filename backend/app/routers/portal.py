@@ -18,6 +18,9 @@ from app.portal_cookies import clear_portal_cookie, read_portal_token, set_porta
 from app.portal_dependencies import get_current_student
 from app.schemas import (
     HomeworkSubmissionOut,
+    PortalCustomizeIn,
+    PortalDailyAnswerIn,
+    PortalDailyOut,
     PortalHomeworkDetailOut,
     PortalHomeworkOut,
     PortalLessonOut,
@@ -33,6 +36,12 @@ from app.services.payment_service import create_payment_intent
 from app.services.ics_calendar import build_ics
 from app.services.homework_output import homework_content_to_html, homework_plain_preview
 from app.services.homework_submission_ai import mark_submission_pending_ai, schedule_ai_review
+from app.services.daily_challenge import (
+    check_daily_answer,
+    ensure_today_challenge,
+    normalize_avatar,
+    normalize_theme,
+)
 from app.services.portal_student import (
     board_public_url,
     compute_progress,
@@ -110,6 +119,63 @@ def portal_logout(response: Response):
 def portal_me(student: Student = Depends(get_current_student), db: Session = Depends(get_db)):
     tutor = db.query(User).filter(User.id == student.tutor_id).first()
     return PortalStudentOut(**student_out_fields(student, tutor))
+
+
+@router.put("/customize", response_model=PortalStudentOut)
+def portal_customize(
+    data: PortalCustomizeIn,
+    student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db),
+):
+    if data.portal_nickname is not None:
+        student.portal_nickname = (data.portal_nickname or "").strip()[:64]
+    if data.portal_theme is not None:
+        student.portal_theme = normalize_theme(data.portal_theme)
+    if data.portal_avatar is not None:
+        student.portal_avatar = normalize_avatar(data.portal_avatar)
+    db.commit()
+    db.refresh(student)
+    tutor = db.query(User).filter(User.id == student.tutor_id).first()
+    return PortalStudentOut(**student_out_fields(student, tutor))
+
+
+@router.get("/daily", response_model=PortalDailyOut)
+async def portal_daily(student: Student = Depends(get_current_student), db: Session = Depends(get_db)):
+    payload = await ensure_today_challenge(db, student)
+    ch = payload.get("challenge")
+    return PortalDailyOut(
+        available=bool(payload.get("available")),
+        reason=payload.get("reason") or "",
+        message=payload.get("message") or "",
+        lesson_today=bool(payload.get("lesson_today")),
+        challenge=ch,
+    )
+
+
+@router.post("/daily/{challenge_id}/answer", response_model=PortalDailyOut)
+async def portal_daily_answer(
+    challenge_id: int,
+    data: PortalDailyAnswerIn,
+    student: Student = Depends(get_current_student),
+    db: Session = Depends(get_db),
+):
+    try:
+        payload = await check_daily_answer(db, student, challenge_id, data.answer)
+    except ValueError as e:
+        code = str(e)
+        if code == "not_found":
+            raise HTTPException(status_code=404, detail="Challenge not found")
+        if code == "empty":
+            raise HTTPException(status_code=400, detail="Введите ответ")
+        raise HTTPException(status_code=400, detail="Ошибка ответа")
+    ch = payload.get("challenge")
+    return PortalDailyOut(
+        available=bool(payload.get("available")),
+        reason=payload.get("reason") or "",
+        message=payload.get("message") or "",
+        lesson_today=bool(payload.get("lesson_today")),
+        challenge=ch,
+    )
 
 
 @router.get("/progress", response_model=PortalProgressOut)

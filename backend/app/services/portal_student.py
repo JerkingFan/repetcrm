@@ -50,11 +50,15 @@ def board_public_url(board: Board | None) -> str:
 
 
 def student_out_fields(student: Student, tutor: User | None) -> dict:
+    from app.services.daily_challenge import normalize_avatar, normalize_theme
+
     hide = bool(getattr(tutor, "hide_balance_in_portal", True)) if tutor else True
     tg = (tutor.contact_telegram if tutor else "") or ""
+    nick = (getattr(student, "portal_nickname", "") or "").strip()
     return {
         "id": student.id,
         "name": student.name,
+        "display_name": nick or student.name,
         "subject": student.subject or "",
         "grade": student.grade or "",
         "balance": 0.0 if hide else float(student.balance or 0),
@@ -63,6 +67,9 @@ def student_out_fields(student: Student, tutor: User | None) -> dict:
         "tutor_telegram": tg,
         "tutor_contact_url": (tutor.contact_url if tutor else "") or "",
         "tutor_telegram_url": telegram_url(tg),
+        "portal_nickname": nick,
+        "portal_theme": normalize_theme(getattr(student, "portal_theme", None)),
+        "portal_avatar": normalize_avatar(getattr(student, "portal_avatar", None)),
     }
 
 
@@ -160,25 +167,27 @@ def compute_progress(db: Session, student: Student) -> dict:
                 }
             )
 
-    days = sorted({s.submitted_at.date() for s in subs if s.submitted_at}, reverse=True)
+    from app.services.daily_challenge import daily_activity_dates
+
+    activity_days = sorted(daily_activity_dates(db, student.id), reverse=True)
     streak = 0
     cursor = date.today()
     streak_at_risk = False
-    if days and days[0] < cursor - timedelta(days=1):
+    if activity_days and activity_days[0] < cursor - timedelta(days=1):
         streak = 0
     else:
-        if days and days[0] == cursor - timedelta(days=1):
-            streak_at_risk = True  # last submit yesterday — today still open
-            cursor = days[0]
-        elif days and days[0] == cursor:
+        if activity_days and activity_days[0] == cursor - timedelta(days=1):
+            streak_at_risk = True
+            cursor = activity_days[0]
+        elif activity_days and activity_days[0] == cursor:
             streak_at_risk = False
-        for d in days:
+        for d in activity_days:
             if d == cursor:
                 streak += 1
                 cursor = cursor - timedelta(days=1)
             elif d < cursor:
                 break
-        if streak > 0 and date.today() not in {s.submitted_at.date() for s in subs if s.submitted_at}:
+        if streak > 0 and date.today() not in set(activity_days):
             streak_at_risk = True
 
     topics: list[str] = []

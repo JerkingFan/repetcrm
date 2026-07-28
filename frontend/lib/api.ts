@@ -755,6 +755,7 @@ export const api = {
       portalRequest<{
         id: number;
         name: string;
+        display_name?: string;
         subject: string;
         grade: string;
         balance: number;
@@ -763,7 +764,79 @@ export const api = {
         tutor_telegram?: string;
         tutor_contact_url?: string;
         tutor_telegram_url?: string;
+        portal_nickname?: string;
+        portal_theme?: string;
+        portal_avatar?: string;
       }>("/portal/me"),
+    customize: (data: {
+      portal_nickname?: string;
+      portal_theme?: string;
+      portal_avatar?: string;
+    }) =>
+      portalRequest<{
+        id: number;
+        name: string;
+        display_name?: string;
+        subject: string;
+        grade: string;
+        balance: number;
+        show_balance?: boolean;
+        tutor_name: string;
+        tutor_telegram?: string;
+        tutor_contact_url?: string;
+        tutor_telegram_url?: string;
+        portal_nickname?: string;
+        portal_theme?: string;
+        portal_avatar?: string;
+      }>("/portal/customize", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    daily: () =>
+      portalRequest<{
+        available: boolean;
+        reason: string;
+        message: string;
+        lesson_today: boolean;
+        challenge: {
+          id: number;
+          challenge_date: string;
+          question: string;
+          topic: string;
+          difficulty: string;
+          status: string;
+          answer_text: string;
+          ai_verdict: string;
+          ai_score: number | null;
+          ai_feedback: string;
+          answered_at: string | null;
+        } | null;
+      }>("/portal/daily"),
+    answerDaily: (challengeId: number, answer: string) =>
+      portalRequest<{
+        available: boolean;
+        reason: string;
+        message: string;
+        lesson_today: boolean;
+        challenge: {
+          id: number;
+          challenge_date: string;
+          question: string;
+          topic: string;
+          difficulty: string;
+          status: string;
+          answer_text: string;
+          ai_verdict: string;
+          ai_score: number | null;
+          ai_feedback: string;
+          answered_at: string | null;
+        } | null;
+      }>(`/portal/daily/${challengeId}/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answer }),
+      }),
     progress: () =>
       portalRequest<{
         homework_total: number;

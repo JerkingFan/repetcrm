@@ -623,6 +623,7 @@ class PortalLoginIn(BaseModel):
 class PortalStudentOut(BaseModel):
     id: int
     name: str
+    display_name: str = ""
     subject: str
     grade: str
     balance: float
@@ -631,6 +632,41 @@ class PortalStudentOut(BaseModel):
     tutor_telegram: str = ""
     tutor_contact_url: str = ""
     tutor_telegram_url: str = ""
+    portal_nickname: str = ""
+    portal_theme: str = "ocean"
+    portal_avatar: str = "rocket"
+
+
+class PortalCustomizeIn(BaseModel):
+    portal_nickname: Optional[str] = Field(default=None, max_length=64)
+    portal_theme: Optional[str] = Field(default=None, max_length=32)
+    portal_avatar: Optional[str] = Field(default=None, max_length=32)
+
+
+class PortalDailyChallengeOut(BaseModel):
+    id: int
+    challenge_date: str
+    question: str
+    topic: str
+    difficulty: str = "easy"
+    status: str
+    answer_text: str = ""
+    ai_verdict: str = ""
+    ai_score: Optional[int] = None
+    ai_feedback: str = ""
+    answered_at: Optional[str] = None
+
+
+class PortalDailyOut(BaseModel):
+    available: bool
+    reason: str = ""
+    message: str = ""
+    lesson_today: bool = False
+    challenge: Optional[PortalDailyChallengeOut] = None
+
+
+class PortalDailyAnswerIn(BaseModel):
+    answer: str = Field(min_length=1, max_length=2000)
 
 
 class PortalLessonOut(BaseModel):

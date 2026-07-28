@@ -1,6 +1,6 @@
 from datetime import datetime, date
 
-from sqlalchemy import String, Integer, Float, Boolean, ForeignKey, DateTime, Date, Text, Enum as SAEnum
+from sqlalchemy import String, Integer, Float, Boolean, ForeignKey, DateTime, Date, Text, Enum as SAEnum, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 import enum
 
@@ -125,12 +125,18 @@ class Student(Base):
     first_lesson_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     last_lesson_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     student_status: Mapped[str] = mapped_column(String(20), default="active")
+    portal_nickname: Mapped[str] = mapped_column(String(64), default="")
+    portal_theme: Mapped[str] = mapped_column(String(32), default="ocean")
+    portal_avatar: Mapped[str] = mapped_column(String(32), default="rocket")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     tutor: Mapped["User"] = relationship(back_populates="students")
     lessons: Mapped[list["Lesson"]] = relationship(back_populates="student")
     packages: Mapped[list["LessonPackage"]] = relationship(back_populates="student")
     trial_bookings: Mapped[list["TrialBooking"]] = relationship(back_populates="student")
+    daily_challenges: Mapped[list["StudentDailyChallenge"]] = relationship(
+        back_populates="student", cascade="all, delete-orphan"
+    )
 
 
 class HomeworkTemplate(Base):
@@ -465,3 +471,29 @@ class LessonRescheduleRequest(Base):
     lesson: Mapped["Lesson"] = relationship()
     student: Mapped["Student"] = relationship()
     tutor: Mapped["User"] = relationship()
+
+
+class StudentDailyChallenge(Base):
+    """One short practice task per day when there is no lesson — keeps streak alive."""
+
+    __tablename__ = "student_daily_challenges"
+    __table_args__ = (
+        UniqueConstraint("student_id", "challenge_date", name="uq_daily_challenge_student_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), index=True)
+    challenge_date: Mapped[date] = mapped_column(Date, index=True)
+    question: Mapped[str] = mapped_column(Text, default="")
+    topic: Mapped[str] = mapped_column(String(255), default="")
+    difficulty: Mapped[str] = mapped_column(String(20), default="easy")
+    expected_hint: Mapped[str] = mapped_column(Text, default="")
+    answer_text: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    ai_verdict: Mapped[str] = mapped_column(String(30), default="")
+    ai_score: Mapped[int | None] = mapped_column(nullable=True)
+    ai_feedback: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    student: Mapped["Student"] = relationship(back_populates="daily_challenges")
