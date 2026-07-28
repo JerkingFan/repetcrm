@@ -7,13 +7,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-COMPOSE=(docker compose -f docker-compose.prod.yml --env-file .env.production)
 ENV_FILE="$ROOT/.env.production"
-VOLUME_NAME="${COMPOSE_PROJECT_NAME:-repetcrm}_backend_data"
+COMPOSE=(docker compose -f docker-compose.prod.yml --env-file .env.production)
 
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
 grn() { printf '\033[32m%s\033[0m\n' "$*"; }
 ylw() { printf '\033[33m%s\033[0m\n' "$*"; }
+
+env_val() {
+  local key="$1"
+  grep "^${key}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d ' \"\r' || true
+}
 
 if [[ ! -f "$ENV_FILE" ]]; then
   red "Нет .env.production — скопируйте: cp .env.production.example .env.production"
@@ -25,6 +29,16 @@ if ! command -v docker >/dev/null; then
   exit 1
 fi
 
+# Load ports / project name from env file for this shell
+set -a
+# shellcheck disable=SC1090
+source <(grep -E '^(BACKEND_PORT|FRONTEND_PORT|COMPOSE_PROJECT_NAME|REDIS_PASSWORD|REDIS_URL)=' "$ENV_FILE" | sed 's/\r$//' || true)
+set +a
+
+PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(basename "$ROOT")}"
+VOLUME_NAME="${PROJECT_NAME}_backend_data"
+BACKEND_PORT="${BACKEND_PORT:-8000}"
+
 # --- проверка критичных переменных ---
 require_env() {
   local key="$1"
@@ -33,7 +47,7 @@ require_env() {
     exit 1
   fi
   local val
-  val="$(grep "^${key}=" "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d ' \"')"
+  val="$(env_val "$key")"
   if [[ -z "$val" || "$val" == *"example.com"* || "$val" == *"changeme"* || "$val" == *"сгенерируйте"* ]]; then
     red "Заполните ${key} в .env.production (сейчас: пусто или placeholder)"
     exit 1
@@ -43,11 +57,27 @@ require_env() {
 require_env SECRET_KEY
 require_env NEXT_PUBLIC_API_URL
 require_env OPENROUTER_API_KEY
+require_env CORS_ORIGINS
+
+SECRET_VAL="$(env_val SECRET_KEY)"
+if [[ ${#SECRET_VAL} -lt 32 ]]; then
+  red "SECRET_KEY слишком короткий (нужно ≥32 символов)"
+  exit 1
+fi
+
+CORS_VAL="$(env_val CORS_ORIGINS)"
+SITE_HOST="$(env_val FRONTEND_PUBLIC_URL | sed -E 's|^https?://||;s|/.*||')"
+if [[ -z "$SITE_HOST" ]]; then
+  SITE_HOST="$(env_val NEXT_PUBLIC_API_URL | sed -E 's|^https?://||;s|/.*||')"
+fi
+if [[ -n "$SITE_HOST" && "$CORS_VAL" != *"$SITE_HOST"* ]]; then
+  red "CORS_ORIGINS должен включать домен сайта (${SITE_HOST})"
+  exit 1
+fi
 
 if ! grep -q "^FRONTEND_PUBLIC_URL=" "$ENV_FILE"; then
-  CORS_VAL="$(grep '^CORS_ORIGINS=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- || true)"
-  if [[ "$CORS_VAL" != *"repetcrm.ru"* && "$CORS_VAL" != *"https://"* ]]; then
-    red "Добавьте FRONTEND_PUBLIC_URL=https://repetcrm.ru в .env.production (ссылки кабинета ученика/родителя)"
+  if [[ "$CORS_VAL" != *"https://"* ]]; then
+    red "Добавьте FRONTEND_PUBLIC_URL=https://repetcrm.ru в .env.production"
     exit 1
   fi
   ylw "FRONTEND_PUBLIC_URL не задан — будет взят из CORS_ORIGINS"
@@ -55,13 +85,20 @@ else
   require_env FRONTEND_PUBLIC_URL
 fi
 
-COOKIE_VAL="$(grep '^COOKIE_SECURE=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d ' \"' | tr '[:upper:]' '[:lower:]' || true)"
+COOKIE_VAL="$(env_val COOKIE_SECURE | tr '[:upper:]' '[:lower:]')"
 if [[ -n "$COOKIE_VAL" && "$COOKIE_VAL" != "true" && "$COOKIE_VAL" != "1" && "$COOKIE_VAL" != "yes" ]]; then
   red "COOKIE_SECURE должен быть true в production (сейчас: ${COOKIE_VAL})"
   exit 1
 fi
 
-DB_URL="$(grep '^DATABASE_URL=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d ' \"' || true)"
+REDIS_PASS="$(env_val REDIS_PASSWORD)"
+REDIS_URL_VAL="$(env_val REDIS_URL)"
+if [[ -n "$REDIS_PASS" && -n "$REDIS_URL_VAL" && "$REDIS_URL_VAL" != *":${REDIS_PASS}@"* ]]; then
+  red "REDIS_URL должен содержать тот же пароль, что REDIS_PASSWORD (иначе worker уйдёт в restart loop)"
+  exit 1
+fi
+
+DB_URL="$(env_val DATABASE_URL)"
 if [[ -z "$DB_URL" ]]; then
   ylw "DATABASE_URL не задан — будет SQLite (sqlite:///./data/repetcrm.db)"
 fi
@@ -88,23 +125,24 @@ else
   ylw "Volume ${VOLUME_NAME} ещё не создан — первый деплой"
 fi
 
-ylw "Сборка и запуск контейнеров..."
+ylw "Сборка и запуск контейнеров (NEXT_PUBLIC_* требует --build)..."
 if ! "${COMPOSE[@]}" up -d --build; then
   red "docker compose up failed — логи backend:"
   "${COMPOSE[@]}" logs --tail=100 backend || true
   exit 1
 fi
 
-ylw "Ожидание health backend..."
-for i in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${BACKEND_PORT:-8000}/health" >/tmp/repetcrm_health.json 2>/dev/null; then
+ylw "Ожидание health backend на :${BACKEND_PORT}..."
+rm -f /tmp/repetcrm_health.json
+for i in $(seq 1 45); do
+  if curl -fsS "http://127.0.0.1:${BACKEND_PORT}/health" >/tmp/repetcrm_health.json 2>/dev/null; then
     break
   fi
   sleep 2
 done
 
 if [[ ! -f /tmp/repetcrm_health.json ]]; then
-  red "Backend не отвечает на :${BACKEND_PORT:-8000}/health"
+  red "Backend не отвечает на :${BACKEND_PORT}/health"
   "${COMPOSE[@]}" logs --tail=80 backend
   exit 1
 fi
@@ -116,15 +154,18 @@ echo ""
 
 USERS="$(python3 -c "import json; d=json.load(open('/tmp/repetcrm_health.json')); print(d.get('database',{}).get('users_count','?'))" 2>/dev/null || echo "?")"
 if [[ "$USERS" == "0" ]]; then
-  red "ОПАСНО: users_count=0 — API подключён к пустой БД!"
-  red "Проверьте DATABASE_URL и volume backend_data. НЕ открывайте пользователям."
-  exit 1
+  if docker volume inspect "$VOLUME_NAME" >/dev/null 2>&1; then
+    red "ОПАСНО: users_count=0 при существующем volume — возможно пустая/не та БД!"
+    red "Проверьте DATABASE_URL и volume ${VOLUME_NAME}. НЕ открывайте пользователям."
+    exit 1
+  fi
+  ylw "users_count=0 — первый деплой (ожидаемо). Зарегистрируйте репетитора."
+else
+  grn "users_count=${USERS}"
 fi
-
-grn "users_count=${USERS}"
 
 ylw "Статус контейнеров:"
 "${COMPOSE[@]}" ps
 
-grn "Готово. Проверьте в браузере: вход и генерация ДЗ."
+grn "Готово. Проверьте по HTTPS (COOKIE_SECURE): вход и кабинет ученика."
 grn "Логи: ${COMPOSE[*]} logs -f backend worker"

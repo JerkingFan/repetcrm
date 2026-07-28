@@ -158,13 +158,20 @@ app.include_router(reschedule.router)
 
 @app.get("/health")
 def health():
+    from fastapi.responses import JSONResponse
+
     from app.services.board_bus import board_bus
 
     redis = get_redis()
-    return {
-        "status": "ok",
+    db_health = get_db_health()
+    db_ok = bool(db_health.get("ok"))
+    body = {
+        "status": "ok" if db_ok else "degraded",
         "redis": "connected" if redis is not None else "disabled",
         "worker": "arq" if redis is not None else "in-process",
         "board_bus": "redis" if board_bus.enabled else "local",
-        "database": get_db_health(),
+        "database": db_health,
     }
+    if not db_ok:
+        return JSONResponse(status_code=503, content=body)
+    return body

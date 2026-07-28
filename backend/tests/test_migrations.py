@@ -40,7 +40,7 @@ def test_fresh_database_runs_migrations(tmp_path, monkeypatch):
     rev = db.engine.connect().execute(
         __import__("sqlalchemy").text("SELECT version_num FROM alembic_version")
     ).scalar_one()
-    assert rev == "f3a4b5c6d7e8"
+    assert rev == "c3d4e5f6a7b8"
 
 
 def test_existing_database_upgrades_preserving_users(tmp_path, monkeypatch):
@@ -74,7 +74,7 @@ def test_existing_database_upgrades_preserving_users(tmp_path, monkeypatch):
         ).scalar_one()
 
     assert count == 1
-    assert rev == "f3a4b5c6d7e8"
+    assert rev == "c3d4e5f6a7b8"
 
 
 def test_repair_users_columns_allows_orm_load(tmp_path, monkeypatch):
@@ -189,7 +189,7 @@ def test_legacy_db_without_alembic_version_stamps_then_upgrades(tmp_path, monkey
         ).scalar_one()
 
     assert count == 1
-    assert rev == "f3a4b5c6d7e8"
+    assert rev == "c3d4e5f6a7b8"
 
 
 def test_repair_boards_share_writable_and_snapshots(tmp_path, monkeypatch):

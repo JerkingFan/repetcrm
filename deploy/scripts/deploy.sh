@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # Деплой RepetCRM с GitHub: первый запуск или обновление.
 # Использование:
-#   curl -fsSL .../deploy/scripts/deploy.sh | bash          # не рекомендуется без проверки
 #   ./deploy/scripts/deploy.sh                              # из клона репозитория
 #   INSTALL_DIR=/opt/repetcrm ./deploy/scripts/deploy.sh    # первый клон в /opt/repetcrm
+#
+# После заполнения .env.production делегирует в deploy-prod.sh (проверки + бэкап).
 
 set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/JerkingFan/repetcrm.git}"
 INSTALL_DIR="${INSTALL_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
-COMPOSE_FILE="docker-compose.prod.yml"
 ENV_FILE=".env.production"
-PROFILE="${PROFILE:-}" # postgres — для PostgreSQL: PROFILE=postgres ./deploy.sh
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "Ошибка: Docker не установлен. Установите Docker 24+ и Docker Compose v2."
@@ -47,23 +46,21 @@ if [ ! -f "$ENV_FILE" ]; then
   echo "  SECRET_KEY          — случайная строка 32+ символов"
   echo "  OPENROUTER_API_KEY  — ключ с https://openrouter.ai"
   echo "  NEXT_PUBLIC_API_URL — URL API в браузере (например https://repetcrm.ru/api)"
-  echo "  CORS_ORIGINS        — URL сайта (например https://repetcrm.ru)"
+  echo "  FRONTEND_PUBLIC_URL — https://repetcrm.ru"
+  echo "  CORS_ORIGINS        — https://repetcrm.ru,https://www.repetcrm.ru"
+  echo "  REDIS_PASSWORD + REDIS_URL — один и тот же пароль"
   echo ""
   echo "Затем снова: ./deploy/scripts/deploy.sh"
+  echo ""
+  echo "Важно: вход/кабинет работают только по HTTPS (COOKIE_SECURE=true)."
+  echo "Не проверяйте auth на http://IP:3000 — cookies не сохранятся."
   exit 0
 fi
 
-COMPOSE_ARGS=(-f "$COMPOSE_FILE" --env-file "$ENV_FILE")
-if [ -n "$PROFILE" ]; then
-  COMPOSE_ARGS+=(--profile "$PROFILE")
+if [ -n "${PROFILE:-}" ]; then
+  echo "PROFILE=$PROFILE — запускайте вручную:"
+  echo "  docker compose -f docker-compose.prod.yml --env-file .env.production --profile $PROFILE up -d --build"
+  exit 1
 fi
 
-echo "Сборка и запуск контейнеров..."
-docker compose "${COMPOSE_ARGS[@]}" up -d --build
-
-echo ""
-echo "Готово."
-echo "  API:      http://$(hostname -I 2>/dev/null | awk '{print $1}'):8000/docs"
-echo "  Frontend: http://$(hostname -I 2>/dev/null | awk '{print $1}'):3000"
-echo ""
-echo "Логи: docker compose ${COMPOSE_ARGS[*]} logs -f"
+exec "$(dirname "$0")/deploy-prod.sh"

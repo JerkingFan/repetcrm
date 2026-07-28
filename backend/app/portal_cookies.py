@@ -23,7 +23,13 @@ def set_portal_cookie(response: Response, token: str) -> None:
 
 
 def clear_portal_cookie(response: Response) -> None:
-    response.delete_cookie(key=PORTAL_COOKIE_NAME, path="/")
+    cfg = get_settings()
+    response.delete_cookie(
+        key=PORTAL_COOKIE_NAME,
+        path="/",
+        secure=cfg.cookie_secure,
+        samesite="lax",
+    )
 
 
 def read_portal_token(request: Request) -> str | None:

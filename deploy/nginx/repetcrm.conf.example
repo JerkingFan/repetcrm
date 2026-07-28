@@ -1,5 +1,9 @@
-# Пример nginx: https://example.com → frontend, /api → backend
+# Пример nginx: https://repetcrm.ru → frontend, /api → backend
 # Положить в /etc/nginx/sites-available/repetcrm и сделать symlink в sites-enabled
+#
+# limit_req_zone MUST be in http {} context (nginx.conf), not inside server {}.
+# Add once to /etc/nginx/nginx.conf inside http { ... }:
+#   limit_req_zone $binary_remote_addr zone=repetcrm_api:10m rate=10r/s;
 
 upstream repetcrm_frontend {
     server 127.0.0.1:3000;
@@ -11,21 +15,18 @@ upstream repetcrm_backend {
 
 server {
     listen 80;
-    server_name example.com www.example.com;
+    server_name repetcrm.ru www.repetcrm.ru;
     return 301 https://$host$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name example.com www.example.com;
+    server_name repetcrm.ru www.repetcrm.ru;
 
-    # ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
-    # ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+    # ssl_certificate /etc/letsencrypt/live/repetcrm.ru/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/repetcrm.ru/privkey.pem;
 
     client_max_body_size 20M;
-
-    # Rate limit: 10 req/s per IP with burst 40 (API)
-    limit_req_zone $binary_remote_addr zone=repetcrm_api:10m rate=10r/s;
 
     # WebSocket доски (долгие уроки): отдельный location с увеличенным таймаутом
     location /api/boards/ws/ {
@@ -42,6 +43,7 @@ server {
     }
 
     location /api/ {
+        # Requires limit_req_zone in http {} (see header comment)
         limit_req zone=repetcrm_api burst=40 nodelay;
         proxy_pass http://repetcrm_backend/;
         proxy_http_version 1.1;
@@ -65,5 +67,6 @@ server {
 }
 
 # Тогда в .env.production:
-# NEXT_PUBLIC_API_URL=https://example.com/api
-# CORS_ORIGINS=https://example.com
+# NEXT_PUBLIC_API_URL=https://repetcrm.ru/api
+# FRONTEND_PUBLIC_URL=https://repetcrm.ru
+# CORS_ORIGINS=https://repetcrm.ru,https://www.repetcrm.ru

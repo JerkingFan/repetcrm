@@ -22,7 +22,12 @@ def set_access_cookie(response: Response, access_token: str) -> None:
 
 def clear_access_cookie(response: Response) -> None:
     cfg = get_settings()
-    response.delete_cookie(key=cfg.access_cookie_name, path="/")
+    response.delete_cookie(
+        key=cfg.access_cookie_name,
+        path="/",
+        secure=cfg.cookie_secure,
+        samesite="lax",
+    )
 
 
 def read_access_token(request: Request) -> str | None:

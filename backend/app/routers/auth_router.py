@@ -88,10 +88,11 @@ def _set_refresh_cookie(response: Response, raw_token: str) -> None:
 
 def _clear_refresh_cookie(response: Response) -> None:
     cfg = get_settings()
-    response.delete_cookie(key=cfg.refresh_cookie_name, path="/")
+    kwargs = {"secure": cfg.cookie_secure, "samesite": "lax"}
+    response.delete_cookie(key=cfg.refresh_cookie_name, path="/", **kwargs)
     # старый path=/auth (до фикса nginx /api) — подчистить
-    response.delete_cookie(key=cfg.refresh_cookie_name, path="/auth")
-    response.delete_cookie(key=cfg.refresh_cookie_name, path="/api/auth")
+    response.delete_cookie(key=cfg.refresh_cookie_name, path="/auth", **kwargs)
+    response.delete_cookie(key=cfg.refresh_cookie_name, path="/api/auth", **kwargs)
 
 
 def _issue_tokens(

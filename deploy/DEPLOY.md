@@ -47,10 +47,16 @@ repetcrm/
    - `NEXT_PUBLIC_API_URL` — URL API **как в браузере** (например `https://your-domain.com/api`)
    - `CORS_ORIGINS` — URL сайта (например `https://your-domain.com`)
 
-3. **SQLite** (проще):
+3. **Деплой (рекомендуется скрипт — проверки env + бэкап SQLite):**
+   ```bash
+   ./deploy/scripts/deploy-prod.sh
+   # или после git pull: ./deploy/scripts/deploy.sh
+   ```
+   Вручную:
    ```bash
    docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
    ```
+   После смены `NEXT_PUBLIC_API_URL` всегда нужен `--build` (значение вшивается в фронт при сборке).
 
 4. **PostgreSQL** (только после миграции данных — иначе потеряете доступ к аккаунтам):
    ```bash
@@ -73,13 +79,16 @@ repetcrm/
    ```
 
 5. Проверка:
-   - API: `http://SERVER_IP:8000/docs`
-   - CRM: `http://SERVER_IP:3000`
+   - Health: `curl -s http://127.0.0.1:8000/health` → `"status":"ok"`, `users_count` > 0 (после регистрации)
+   - Сайт: **только HTTPS** (`COOKIE_SECURE=true`). Логин/кабинет на `http://IP:3000` **не сохранят cookies** — это не баг деплоя.
+   - CRM: `https://ваш-домен`
+   - Кабинет ученика: ссылка из CRM → `/portal`
 
 ### Nginx + HTTPS
 
 Пример: `deploy/nginx/repetcrm.conf.example`  
-После настройки укажите `NEXT_PUBLIC_API_URL=https://ваш-домен/api`.
+**Важно:** `limit_req_zone` должен быть в `http {}` (`/etc/nginx/nginx.conf`), не внутри `server {}` — иначе `nginx -t` упадёт.  
+После настройки укажите `NEXT_PUBLIC_API_URL=https://ваш-домен/api` и пересоберите фронт.
 
 **Виртуальная доска (WebSocket):** увеличьте `proxy_read_timeout` для `/api/boards/ws/` (см. пример nginx и [deploy/WEBSOCKET.md](WEBSOCKET.md)). Для API с доской рекомендуется **`uvicorn --workers 1`** или Redis pub/sub между воркерами.
 
@@ -237,7 +246,8 @@ curl -s -H "Authorization: Bearer YOUR_METRICS_TOKEN" http://127.0.0.1:8000/metr
 ### Rate limit и Redis
 
 - API: `API_RATE_LIMIT_MAX=120` запросов / `API_RATE_LIMIT_WINDOW_SEC=60` на IP (кроме `/health`, `/metrics`, WebSocket).
-- Redis в Docker: задайте `REDIS_PASSWORD` и обновите `REDIS_URL=redis://:password@redis:6379/0`.
-- Nginx: `limit_req` в `deploy/nginx/repetcrm.conf.example`.
+- Redis в Docker: задайте `REDIS_PASSWORD` и обновите `REDIS_URL=redis://:password@redis:6379/0` (пароль должен совпадать, иначе worker в restart loop).
+- Nginx: `limit_req` в location; `limit_req_zone` — только в `http {}` (см. комментарий в `deploy/nginx/repetcrm.conf.example`).
+- `/health` отдаёт **503**, если БД недоступна (compose healthcheck это учитывает).
 
 При изменении схемы БД — `deploy/sql/migrations/`.
