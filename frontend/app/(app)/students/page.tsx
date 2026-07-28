@@ -165,7 +165,7 @@ export default function StudentsPage() {
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-brand-blue">Ученики</h1>
+          <h1 className="rc-page-title">Ученики</h1>
           <p className="text-slate-500 text-sm mt-1">
             {total} учеников · карточки с классом, школой и контактами
           </p>

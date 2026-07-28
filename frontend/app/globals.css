@@ -2,8 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --font-portal-display: var(--font-display);
+  --font-portal-body: var(--font-sans);
+  --rc-ink: #042f2e;
+  --rc-accent: #0f766e;
+  --rc-signal: #14b8a6;
+}
+
 body {
-  @apply bg-slate-50 text-slate-800 antialiased;
+  @apply bg-app-mesh text-slate-800 antialiased;
+  min-height: 100vh;
+}
+
+@layer components {
+  .rc-page-title {
+    @apply font-display text-2xl sm:text-3xl font-bold tracking-tight text-brand-ink;
+  }
+
+  .rc-page-sub {
+    @apply mt-1.5 text-sm text-slate-500 leading-relaxed;
+  }
+
+  .rc-card {
+    @apply rounded-2xl border border-teal-900/[0.08] bg-white/80 backdrop-blur-sm shadow-soft;
+  }
+
+  .rc-card-pad {
+    @apply rc-card p-5 sm:p-6;
+  }
+
+  .rc-section-title {
+    @apply font-display text-base font-bold tracking-tight text-brand-ink;
+  }
+
+  .rc-btn-primary {
+    @apply inline-flex items-center justify-center rounded-xl bg-brand-green px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-110 active:scale-[0.98] disabled:opacity-60;
+  }
+
+  .rc-btn-ink {
+    @apply inline-flex items-center justify-center rounded-xl bg-brand-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-125 active:scale-[0.98];
+  }
+
+  .rc-input {
+    @apply w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/20;
+  }
+
+  .rc-stat {
+    @apply rc-card p-5 sm:p-6 transition hover:shadow-lift hover:-translate-y-0.5;
+  }
 }
 
 @keyframes pdf-progress-indeterminate {
@@ -20,6 +67,39 @@ body {
   animation: pdf-progress-indeterminate 1.4s ease-in-out infinite;
 }
 
+/* ——— App chrome ——— */
+.app-shell {
+  @apply min-h-screen flex relative;
+}
+
+.app-main {
+  @apply flex-1 lg:ml-0 pt-16 lg:pt-0 p-4 sm:p-6 lg:p-8 overflow-auto;
+}
+
+.app-sidebar {
+  @apply fixed lg:static inset-y-0 left-0 z-40 flex flex-col transform transition-all duration-200 lg:translate-x-0;
+  background: linear-gradient(180deg, #042f2e 0%, #0a3d3a 45%, #0f766e 140%);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 8px 0 40px -24px rgba(4, 47, 46, 0.55);
+}
+
+.app-sidebar-brand {
+  @apply font-display font-bold tracking-tight text-white;
+}
+
+.app-nav-link {
+  @apply flex items-center gap-3 rounded-xl text-sm font-semibold transition;
+}
+
+.app-nav-link-active {
+  @apply bg-white text-brand-ink shadow-lift;
+}
+
+.app-nav-link-idle {
+  @apply text-teal-50/75 hover:bg-white/10 hover:text-white;
+}
+
+/* ——— Portal (student) ——— */
 .portal-shell {
   position: relative;
   isolation: isolate;

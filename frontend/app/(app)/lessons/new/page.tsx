@@ -80,7 +80,7 @@ export default function NewLessonPage() {
   return (
     <div className="max-w-xl">
       <Link href="/lessons" className="text-sm text-brand-blue hover:underline">← Занятия</Link>
-      <h1 className="mt-4 text-2xl font-bold text-brand-blue">Новое занятие</h1>
+      <h1 className="mt-4 rc-page-title">Новое занятие</h1>
       {error && <div className="mt-4"><Alert message={error} /></div>}
       {students.length === 0 ? (
         <p className="mt-6 text-slate-500">

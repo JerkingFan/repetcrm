@@ -52,7 +52,7 @@ export default function BoardsPage() {
   return (
     <div className="max-w-3xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-brand-blue">Виртуальная доска</h1>
+        <h1 className="rc-page-title">Виртуальная доска</h1>
         <p className="text-slate-500 mt-1">Создавайте доски и делитесь ссылкой с учениками без авторизации.</p>
       </div>
 

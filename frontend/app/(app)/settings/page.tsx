@@ -140,7 +140,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-2xl font-bold text-brand-blue">Настройки</h1>
+      <h1 className="rc-page-title">Настройки</h1>
       <p className="text-slate-500 text-sm mt-1">Профиль, безопасность и уведомления</p>
 
       {error && (

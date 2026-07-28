@@ -1,17 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope, Unbounded } from "next/font/google";
-
-const display = Unbounded({
-  subsets: ["latin", "cyrillic"],
-  variable: "--font-portal-display",
-  display: "swap",
-});
-
-const body = Manrope({
-  subsets: ["latin", "cyrillic"],
-  variable: "--font-portal-body",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "Кабинет ученика · RepetCRM",
@@ -26,5 +13,5 @@ export const viewport: Viewport = {
 };
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
-  return <div className={`portal-root ${display.variable} ${body.variable}`}>{children}</div>;
+  return <div className="portal-root">{children}</div>;
 }

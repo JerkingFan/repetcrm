@@ -23,7 +23,7 @@ const nav = [
   { href: "/students", label: "Ученики", icon: UserGroupIcon },
   { href: "/lessons", label: "Занятия", icon: CalendarDaysIcon },
   { href: "/prompts", label: "Промпты ДЗ", icon: SparklesIcon },
-  { href: "/boards", label: "Виртуальная доска", icon: PencilSquareIcon },
+  { href: "/boards", label: "Доска", icon: PencilSquareIcon },
   { href: "/settings", label: "Настройки", icon: Cog6ToothIcon },
 ];
 
@@ -42,18 +42,24 @@ function SidebarNav({
 }) {
   return (
     <>
-      <div className={`border-b border-slate-200 ${collapsed ? "px-2 py-4" : "px-4 py-6"}`}>
+      <div className={`border-b border-white/10 ${collapsed ? "px-2 py-4" : "px-4 py-5"}`}>
         <div className="flex items-center justify-between gap-2">
           <Link
             href="/dashboard"
-            className={`font-bold text-brand-blue ${collapsed ? "text-lg px-2" : "text-xl"}`}
+            className={`app-sidebar-brand ${collapsed ? "text-lg px-2" : "text-xl"}`}
             title="RepetCRM"
           >
-            {collapsed ? "R" : <>Repet<span className="text-brand-green">CRM</span></>}
+            {collapsed ? (
+              "R"
+            ) : (
+              <>
+                Repet<span className="text-teal-300">CRM</span>
+              </>
+            )}
           </Link>
           <button
             type="button"
-            className="hidden lg:inline-flex p-2 rounded-lg hover:bg-slate-100 text-slate-600"
+            className="hidden lg:inline-flex p-2 rounded-lg text-teal-100/70 hover:bg-white/10 hover:text-white"
             onClick={onToggleCollapsed}
             aria-label={collapsed ? "Развернуть меню" : "Свернуть меню"}
             title={collapsed ? "Развернуть" : "Свернуть"}
@@ -61,8 +67,13 @@ function SidebarNav({
             {collapsed ? <ChevronRightIcon className="w-5 h-5" /> : <ChevronLeftIcon className="w-5 h-5" />}
           </button>
         </div>
+        {!collapsed && (
+          <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-teal-200/50">
+            Практика репетитора
+          </p>
+        )}
       </div>
-      <nav className={`flex-1 space-y-1 ${collapsed ? "p-2" : "p-4"}`}>
+      <nav className={`flex-1 space-y-1 ${collapsed ? "p-2" : "p-3"}`}>
         {nav.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + "/");
           return (
@@ -71,24 +82,22 @@ function SidebarNav({
               href={href}
               onClick={onNavigate}
               title={label}
-              className={`flex items-center gap-3 rounded-xl text-sm font-medium transition ${
-                active
-                  ? "bg-brand-blue text-white"
-                  : "text-slate-600 hover:bg-slate-100"
-              } ${collapsed ? "justify-center px-3 py-3" : "px-4 py-3"}`}
+              className={`app-nav-link ${
+                active ? "app-nav-link-active" : "app-nav-link-idle"
+              } ${collapsed ? "justify-center px-3 py-3" : "px-3.5 py-2.5"}`}
             >
-              <Icon className="w-5 h-5" />
+              <Icon className="w-5 h-5 shrink-0" />
               {!collapsed && label}
             </Link>
           );
         })}
       </nav>
-      <div className={`border-t border-slate-200 ${collapsed ? "p-2" : "p-4"}`}>
+      <div className={`border-t border-white/10 ${collapsed ? "p-2" : "p-3"}`}>
         <button
           onClick={onLogout}
           title="Выйти"
-          className={`flex items-center gap-3 w-full rounded-xl text-sm text-slate-600 hover:bg-red-50 hover:text-red-600 transition ${
-            collapsed ? "justify-center px-3 py-3" : "px-4 py-3"
+          className={`app-nav-link app-nav-link-idle w-full ${
+            collapsed ? "justify-center px-3 py-3" : "px-3.5 py-2.5"
           }`}
         >
           <ArrowRightOnRectangleIcon className="w-5 h-5" />
@@ -113,22 +122,19 @@ export default function Sidebar() {
   return (
     <>
       <button
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-white shadow-md"
+        className="lg:hidden fixed top-4 left-4 z-50 p-2.5 rounded-xl bg-brand-ink text-white shadow-lift"
         onClick={() => setOpen(!open)}
         aria-label="Меню"
       >
         {open ? <XMarkIcon className="w-6 h-6" /> : <Bars3Icon className="w-6 h-6" />}
       </button>
       {open && (
-        <div
-          className="lg:hidden fixed inset-0 bg-black/40 z-40"
-          onClick={() => setOpen(false)}
-        />
+        <div className="lg:hidden fixed inset-0 bg-brand-ink/50 backdrop-blur-sm z-40" onClick={() => setOpen(false)} />
       )}
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-40 bg-white border-r border-slate-200 flex flex-col transform transition-all duration-200 lg:translate-x-0 ${
-          open ? "translate-x-0" : "-translate-x-full"
-        } ${collapsed ? "w-16" : "w-64"}`}
+        className={`app-sidebar ${open ? "translate-x-0" : "-translate-x-full"} ${
+          collapsed ? "w-16" : "w-64"
+        }`}
       >
         <SidebarNav
           pathname={pathname}

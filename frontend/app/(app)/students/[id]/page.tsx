@@ -135,7 +135,7 @@ export default function StudentDetailPage() {
             </span>
           )}
         </div>
-        <h1 className="text-2xl font-bold text-brand-blue">{data.name}</h1>
+        <h1 className="rc-page-title">{data.name}</h1>
         <dl className="mt-6 grid sm:grid-cols-2 gap-4 text-sm">
           {data.school && (
             <div>

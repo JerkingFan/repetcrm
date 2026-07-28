@@ -42,7 +42,7 @@ export default function PromptsMarketplacePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-brand-blue">Маркетплейс промптов ДЗ</h1>
+      <h1 className="rc-page-title">Маркетплейс промптов ДЗ</h1>
       <p className="mt-1 text-slate-500">
         Готовые настройки генерации по предметам и классам — добавляются в «Мои шаблоны»
       </p>

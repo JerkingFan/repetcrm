@@ -491,7 +491,7 @@ export default function LessonDetailPage() {
 
       <div className="mt-4 p-5 rounded-2xl bg-white border border-slate-100 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-brand-blue">{lesson?.student_name}</h1>
+          <h1 className="rc-page-title">{lesson?.student_name}</h1>
           <p className="text-slate-600 mt-1">
             {lesson &&
               new Date(lesson.lesson_date).toLocaleDateString("ru-RU", {

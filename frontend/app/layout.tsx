@@ -1,9 +1,19 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Manrope, Unbounded } from "next/font/google";
 import Providers from "@/components/Providers";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin", "cyrillic"] });
+const display = Unbounded({
+  subsets: ["latin", "cyrillic"],
+  variable: "--font-display",
+  display: "swap",
+});
+
+const sans = Manrope({
+  subsets: ["latin", "cyrillic"],
+  variable: "--font-sans",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "RepetCRM",
@@ -24,13 +34,13 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: "#1E3A8A",
+  themeColor: "#042f2e",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru">
-      <body className={inter.className}>
+    <html lang="ru" className={`${display.variable} ${sans.variable}`}>
+      <body className="font-sans antialiased">
         <Providers>{children}</Providers>
       </body>
     </html>

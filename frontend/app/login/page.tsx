@@ -42,33 +42,55 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
-      <div className="hidden lg:flex flex-col justify-center bg-brand-blue text-white p-12">
-        <h2 className="text-2xl font-bold">RepetCRM</h2>
-        <p className="mt-4 text-blue-100 max-w-md">
-          Учёт занятий, оплат и персональные домашки с AI за минуту
-        </p>
-        <blockquote className="mt-12 p-6 rounded-2xl bg-white/10 border border-white/20 italic text-blue-50">
+      <div className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-ink-hero text-white p-12 xl:p-16">
+        <div
+          className="pointer-events-none absolute -top-24 -right-16 w-80 h-80 rounded-full bg-teal-300/25 blur-3xl"
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute bottom-10 left-0 w-72 h-72 rounded-full bg-cyan-400/20 blur-3xl"
+          aria-hidden
+        />
+        <div className="relative">
+          <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-teal-100/70">
+            RepetCRM
+          </p>
+          <h2 className="mt-4 font-display text-4xl xl:text-5xl font-bold tracking-tight leading-[1.05] max-w-lg">
+            Практика без хаоса
+          </h2>
+          <p className="mt-4 text-teal-50/85 max-w-md text-base leading-relaxed">
+            Учёт занятий, оплат и персональные домашки с AI — за минуту, а не за вечер.
+          </p>
+        </div>
+        <blockquote className="relative mt-12 p-6 rounded-2xl bg-white/10 border border-white/15 backdrop-blur-sm text-teal-50/95 leading-relaxed">
           {quote}
         </blockquote>
       </div>
-      <div className="flex items-center justify-center p-8">
-        <form onSubmit={submit} className="w-full max-w-md space-y-6">
-          <h1 className="text-2xl font-bold text-brand-blue">Вход</h1>
+
+      <div className="flex items-center justify-center p-6 sm:p-10 bg-app-mesh">
+        <form onSubmit={submit} className="w-full max-w-md space-y-6 rc-card-pad shadow-lift">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-blue/70 lg:hidden">
+              RepetCRM
+            </p>
+            <h1 className="rc-page-title mt-1">Вход</h1>
+            <p className="rc-page-sub">В кабинет репетитора</p>
+          </div>
           {error && <Alert message={error} onClose={() => setError("")} />}
           <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email</label>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green outline-none"
+              className="rc-input"
             />
           </div>
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-sm font-medium">Пароль</label>
-              <Link href="/forgot-password" className="text-sm text-brand-blue hover:underline">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm font-semibold text-slate-700">Пароль</label>
+              <Link href="/forgot-password" className="text-sm font-semibold text-brand-blue hover:underline">
                 Забыли пароль?
               </Link>
             </div>
@@ -77,19 +99,15 @@ export default function LoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green outline-none"
+              className="rc-input"
             />
           </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 rounded-xl bg-brand-green text-white font-semibold hover:bg-emerald-600 disabled:opacity-60 transition"
-          >
+          <button type="submit" disabled={loading} className="rc-btn-primary w-full !py-3">
             {loading ? "Вход..." : "Войти"}
           </button>
           <p className="text-center text-sm text-slate-500">
             Нет аккаунта?{" "}
-            <Link href="/register" className="text-brand-blue font-medium hover:underline">
+            <Link href="/register" className="text-brand-blue font-bold hover:underline">
               Регистрация
             </Link>
           </p>

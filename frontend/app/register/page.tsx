@@ -31,51 +31,55 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-8 bg-slate-50">
-      <form onSubmit={submit} className="w-full max-w-md bg-white p-8 rounded-2xl shadow-lg space-y-6">
-        <h1 className="text-2xl font-bold text-brand-blue">Регистрация</h1>
+    <div className="min-h-screen flex items-center justify-center p-6 bg-app-mesh">
+      <form onSubmit={submit} className="w-full max-w-md space-y-5 rc-card-pad shadow-lift">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-blue/70">
+            RepetCRM
+          </p>
+          <h1 className="rc-page-title mt-1">Регистрация</h1>
+          <p className="rc-page-sub">Создай кабинет репетитора за минуту</p>
+        </div>
         {error && <Alert message={error} onClose={() => setError("")} />}
         <div>
-          <label className="block text-sm font-medium mb-1">Имя</label>
+          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Имя</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-green/30 outline-none"
+            className="rc-input"
             placeholder="Как вас зовут?"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Email</label>
+          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Email</label>
           <input
             type="email"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-green/30 outline-none"
+            className="rc-input"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium mb-1">Пароль (мин. 10, буква и цифра)</label>
+          <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+            Пароль (мин. 10, буква и цифра)
+          </label>
           <input
             type="password"
             required
             minLength={10}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-green/30 outline-none"
+            className="rc-input"
           />
         </div>
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full py-3 rounded-xl bg-brand-green text-white font-semibold hover:bg-emerald-600 disabled:opacity-60"
-        >
+        <button type="submit" disabled={loading} className="rc-btn-primary w-full !py-3">
           {loading ? "Создание..." : "Создать аккаунт"}
         </button>
         <p className="text-center text-sm text-slate-500">
           Уже есть аккаунт?{" "}
-          <Link href="/login" className="text-brand-blue font-medium hover:underline">
+          <Link href="/login" className="text-brand-blue font-bold hover:underline">
             Войти
           </Link>
         </p>
