@@ -15,7 +15,7 @@ type HomeworkItem = {
   lesson_date: string;
   preview: string;
   has_submission: boolean;
-  submission_status: string;
+  submission_status?: string;
 };
 
 type Submission = {
@@ -282,10 +282,10 @@ export default function PortalHomework({
                   <span className="font-medium text-slate-800">{formatRuDate(h.lesson_date)}</span>
                   <span
                     className={`text-[11px] font-medium px-2 py-0.5 rounded-lg ${submissionChipClass(
-                      h.submission_status
+                      h.submission_status || "not_submitted"
                     )}`}
                   >
-                    {SUBMISSION_STATUS_LABEL[h.submission_status] ||
+                    {SUBMISSION_STATUS_LABEL[h.submission_status || "not_submitted"] ||
                       (h.has_submission ? "Сдано" : "Не сдано")}
                   </span>
                 </div>

@@ -35,7 +35,7 @@ type HomeworkItem = {
   lesson_date: string;
   preview: string;
   has_submission: boolean;
-  submission_status: string;
+  submission_status?: string;
 };
 
 export function PortalHome({
@@ -171,10 +171,11 @@ export function PortalHome({
                     </span>
                     <span
                       className={`text-[11px] font-medium px-2 py-0.5 rounded-lg ${submissionChipClass(
-                        h.submission_status
+                        h.submission_status || "not_submitted"
                       )}`}
                     >
-                      {SUBMISSION_STATUS_LABEL[h.submission_status] || h.submission_status}
+                      {SUBMISSION_STATUS_LABEL[h.submission_status || "not_submitted"] ||
+                        h.submission_status}
                     </span>
                   </div>
                   {h.preview && (
