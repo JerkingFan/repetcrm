@@ -634,6 +634,12 @@ class HomeworkSubmissionOut(BaseModel):
     status: str = "submitted"
     tutor_comment: str = ""
     reviewed_at: Optional[datetime] = None
+    ai_review_status: str = "pending"
+    ai_verdict: str = ""
+    ai_score: Optional[int] = None
+    ai_feedback: str = ""
+    ai_review_error: str = ""
+    ai_reviewed_at: Optional[datetime] = None
     submitted_at: datetime
 
     class Config:

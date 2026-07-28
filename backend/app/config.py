@@ -75,6 +75,8 @@ _ENV_FILE_KEYS = {
     "MEDIA_DIR": "media_dir",
     "OPENROUTER_SITE_URL": "openrouter_site_url",
     "OPENROUTER_APP_NAME": "openrouter_app_name",
+    "OPENROUTER_VISION_MODEL": "openrouter_vision_model",
+    "HOMEWORK_AI_REVIEW_ENABLED": "homework_ai_review_enabled",
     "LATEX_ONLINE_URL": "latex_online_url",
     "AI_ALLOW_TEMPLATE_FALLBACK": "ai_allow_template_fallback",
     "REDIS_PASSWORD": "redis_password",
@@ -111,6 +113,8 @@ class Settings(BaseSettings):
     openrouter_max_tokens: int = 4096
     openrouter_site_url: str = "http://localhost:3000"
     openrouter_app_name: str = "RepetCRM"
+    openrouter_vision_model: str = "google/gemini-2.0-flash-001"
+    homework_ai_review_enabled: bool = True
     ai_use_ollama: bool = False
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:3b"

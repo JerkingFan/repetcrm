@@ -19,7 +19,7 @@ from app.database import engine
 logger = logging.getLogger(__name__)
 
 _ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
-_HEAD_REVISION = "f3a4b5c6d7e8"
+_HEAD_REVISION = "a1b2c3d4e5f6"
 
 
 def _alembic_config() -> Config:
@@ -461,6 +461,8 @@ def _detect_legacy_revision(insp: Inspector) -> str:
 
     if insp.has_table("homework_submissions"):
         hs_cols = {c["name"] for c in insp.get_columns("homework_submissions")}
+        if "ai_review_status" in hs_cols:
+            return "a1b2c3d4e5f6"
         if "status" in hs_cols:
             return "d1e2f3a4b5c6"
 

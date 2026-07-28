@@ -29,6 +29,7 @@ from app.schemas import (
 from app.services.payment_service import create_payment_intent
 from app.services.ics_calendar import build_ics
 from app.services.homework_output import homework_content_to_html
+from app.services.homework_submission_ai import mark_submission_pending_ai, schedule_ai_review
 from app.services.portal_token import student_by_portal_token
 from app.services.auth_rate_limit import get_register_limiter
 
@@ -267,9 +268,12 @@ async def portal_submit_homework(
         comment=(comment or "").strip()[:2000],
         status="submitted",
     )
+    mark_submission_pending_ai(db, sub)
     db.add(sub)
     db.commit()
     db.refresh(sub)
+    if sub.ai_review_status == "pending":
+        schedule_ai_review(sub.id)
     return HomeworkSubmissionOut.model_validate(sub)
 
 

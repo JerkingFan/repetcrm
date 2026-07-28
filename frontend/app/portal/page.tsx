@@ -54,6 +54,34 @@ function PortalContent() {
     api.portal.homeworkDetail(selectedHw).then(setHwDetail).catch(() => setHwDetail(null));
   }, [selectedHw]);
 
+  useEffect(() => {
+    if (!selectedHw || !hwDetail) return;
+    const needsPoll = hwDetail.submissions.some(
+      (s) => s.ai_review_status === "pending" || s.ai_review_status === "running"
+    );
+    if (!needsPoll) return;
+    const timer = setInterval(() => {
+      api.portal.homeworkDetail(selectedHw).then(setHwDetail).catch(() => {});
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [selectedHw, hwDetail]);
+
+  const aiVerdictLabel: Record<string, string> = {
+    correct: "Верно ✓",
+    partially_correct: "Частично верно",
+    incorrect: "Есть ошибки",
+    unclear: "Не удалось оценить",
+  };
+
+  const aiVerdictStyle: Record<string, string> = {
+    correct: "bg-emerald-50 border-emerald-200 text-emerald-900",
+    partially_correct: "bg-amber-50 border-amber-200 text-amber-900",
+    incorrect: "bg-red-50 border-red-200 text-red-900",
+    unclear: "bg-slate-50 border-slate-200 text-slate-700",
+  };
+
+  const latestSubmission = hwDetail?.submissions[0];
+
   const submitFile = async (file: File) => {
     if (!selectedHw) return;
     setUploading(true);
@@ -61,7 +89,7 @@ function PortalContent() {
     setSuccess("");
     try {
       await api.portal.submitHomework(selectedHw, file, comment);
-      setSuccess("Ответ отправлен!");
+      setSuccess("Ответ отправлен! AI проверяет решение…");
       setComment("");
       await loadData();
       if (selectedHw) setHwDetail(await api.portal.homeworkDetail(selectedHw));
@@ -247,6 +275,39 @@ function PortalContent() {
               {hwDetail.submissions.length > 0 && (
                 <p className="text-xs text-slate-500">
                   Отправлено: {hwDetail.submissions.map((s) => s.original_filename).join(", ")}
+                </p>
+              )}
+              {latestSubmission &&
+                (latestSubmission.ai_review_status === "pending" ||
+                  latestSubmission.ai_review_status === "running") && (
+                  <div className="p-4 rounded-xl border border-blue-200 bg-blue-50 text-sm text-blue-900">
+                    AI проверяет ваше решение… Обычно это занимает 10–30 секунд.
+                  </div>
+                )}
+              {latestSubmission?.ai_review_status === "done" && latestSubmission.ai_verdict && (
+                <div
+                  className={`p-4 rounded-xl border text-sm ${
+                    aiVerdictStyle[latestSubmission.ai_verdict] || aiVerdictStyle.unclear
+                  }`}
+                >
+                  <p className="font-semibold">
+                    {aiVerdictLabel[latestSubmission.ai_verdict] || latestSubmission.ai_verdict}
+                    {latestSubmission.ai_score != null ? ` · ${latestSubmission.ai_score}%` : ""}
+                  </p>
+                  {latestSubmission.ai_feedback && (
+                    <p className="mt-2 leading-relaxed">{latestSubmission.ai_feedback}</p>
+                  )}
+                  <p className="mt-2 text-xs opacity-80">
+                    Это предварительная оценка AI. Репетитор может скорректировать результат.
+                  </p>
+                </div>
+              )}
+              {latestSubmission?.ai_review_status === "skipped" && latestSubmission.ai_feedback && (
+                <p className="text-xs text-slate-500">{latestSubmission.ai_feedback}</p>
+              )}
+              {latestSubmission?.ai_review_status === "error" && (
+                <p className="text-xs text-amber-700">
+                  Автопроверка не сработала — репетитор проверит вручную.
                 </p>
               )}
             </div>

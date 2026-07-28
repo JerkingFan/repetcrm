@@ -779,6 +779,13 @@ export const api = {
           id: number;
           original_filename: string;
           submitted_at: string;
+          status?: string;
+          comment?: string;
+          ai_review_status?: string;
+          ai_verdict?: string;
+          ai_score?: number | null;
+          ai_feedback?: string;
+          ai_review_error?: string;
         }>;
       }>(`/portal/homework/${id}`),
     submitHomework: async (homeworkId: number, file: File, comment?: string) => {
@@ -1000,6 +1007,12 @@ export const api = {
           status: string;
           tutor_comment: string;
           reviewed_at: string | null;
+          ai_review_status: string;
+          ai_verdict: string;
+          ai_score: number | null;
+          ai_feedback: string;
+          ai_review_error: string;
+          ai_reviewed_at: string | null;
           submitted_at: string;
         }>
       >(`/homework/${id}/submissions`),

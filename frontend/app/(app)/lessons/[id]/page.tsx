@@ -91,6 +91,13 @@ export default function LessonDetailPage() {
     needs_revision: "Нужна доработка",
   };
 
+  const aiVerdictLabel: Record<string, string> = {
+    correct: "Верно",
+    partially_correct: "Частично верно",
+    incorrect: "Неверно",
+    unclear: "Не удалось оценить",
+  };
+
   const loadSubmissions = useCallback((hwId: number) => {
     api.homework.submissions(hwId).then(setSubmissions).catch(() => setSubmissions([]));
   }, []);
@@ -852,6 +859,28 @@ export default function LessonDetailPage() {
                       <p className="text-xs text-slate-600 bg-white rounded-lg p-2 border">
                         Комментарий: {s.tutor_comment}
                       </p>
+                    )}
+                    {s.ai_review_status === "done" && s.ai_verdict && (
+                      <div
+                        className={`text-xs rounded-lg p-3 border ${
+                          s.ai_verdict === "correct"
+                            ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                            : s.ai_verdict === "partially_correct"
+                              ? "bg-amber-50 border-amber-200 text-amber-900"
+                              : s.ai_verdict === "incorrect"
+                                ? "bg-red-50 border-red-200 text-red-900"
+                                : "bg-slate-50 border-slate-200 text-slate-700"
+                        }`}
+                      >
+                        <p className="font-medium">
+                          AI: {aiVerdictLabel[s.ai_verdict] || s.ai_verdict}
+                          {s.ai_score != null ? ` · ${s.ai_score}%` : ""}
+                        </p>
+                        {s.ai_feedback && <p className="mt-1">{s.ai_feedback}</p>}
+                      </div>
+                    )}
+                    {(s.ai_review_status === "pending" || s.ai_review_status === "running") && (
+                      <p className="text-xs text-slate-500">AI проверяет решение…</p>
                     )}
                     {s.status === "submitted" && (
                       <div className="flex flex-col sm:flex-row gap-2 pt-1">

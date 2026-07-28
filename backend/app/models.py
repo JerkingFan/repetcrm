@@ -309,6 +309,12 @@ class HomeworkSubmission(Base):
     status: Mapped[str] = mapped_column(String(20), default="submitted")
     tutor_comment: Mapped[str] = mapped_column(Text, default="")
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ai_review_status: Mapped[str] = mapped_column(String(20), default="pending")
+    ai_verdict: Mapped[str] = mapped_column(String(30), default="")
+    ai_score: Mapped[int | None] = mapped_column(nullable=True)
+    ai_feedback: Mapped[str] = mapped_column(Text, default="")
+    ai_review_error: Mapped[str] = mapped_column(Text, default="")
+    ai_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     submitted_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     homework: Mapped["Homework"] = relationship(back_populates="submissions")
