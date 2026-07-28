@@ -21,6 +21,7 @@ def client(tmp_path, monkeypatch):
     import importlib
     import app.config as config_module
     import app.database as database_module
+    import app.db_migrate as db_migrate_module
     import app.middleware.api_rate_limit as rate_limit_module
     import app.main as main_module
 
@@ -28,6 +29,7 @@ def client(tmp_path, monkeypatch):
     rate_limit_module._limiter = None
     importlib.reload(config_module)
     importlib.reload(database_module)
+    importlib.reload(db_migrate_module)
     importlib.reload(main_module)
 
     _orig_get_settings = config_module.get_settings

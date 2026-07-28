@@ -91,15 +91,18 @@ def load_job(job_id: str) -> Job | None:
         return None
 
 
-def set_active(owner_user_id: int, key_type: str, key_value: int, job_id: str) -> None:
+def set_active(owner_user_id: int, key_type: str, key_value: int, job_id: str) -> bool:
+    """Atomically claim the active lock. Returns False if another job already holds it."""
     redis = get_redis()
     if redis is None:
-        return
+        return True
     try:
         ttl = max(60, get_settings().job_ttl_sec)
-        redis.setex(_active_key(owner_user_id, key_type, key_value), ttl, job_id)
+        ok = redis.set(_active_key(owner_user_id, key_type, key_value), job_id, nx=True, ex=ttl)
+        return bool(ok)
     except Exception as exc:
         logger.warning("job_store set_active failed: %s", exc)
+        return True
 
 
 def get_active(owner_user_id: int, key_type: str, key_value: int) -> str | None:
@@ -125,11 +128,16 @@ def clear_active(owner_user_id: int, key_type: str, key_value: int) -> None:
 
 def recover_stale_jobs() -> int:
     """
-    After API restart, active jobs cannot continue in-process.
-    Mark them failed so clients get a clear error instead of 404.
+    After API restart, in-process jobs cannot continue.
+    When Redis/ARQ is configured, queued/running jobs belong to the worker —
+    do not fail them just because the API process restarted.
     """
     redis = get_redis()
     if redis is None:
+        return 0
+
+    # Worker owns execution when REDIS_URL is set — leave queue/active locks alone.
+    if (get_settings().redis_url or "").strip():
         return 0
 
     recovered = 0
@@ -148,7 +156,6 @@ def recover_stale_jobs() -> int:
                 recovered += 1
                 redis.delete(key)
             elif job and job.status == "queued":
-                # ARQ worker may still pick this up — keep active lock
                 continue
             else:
                 redis.delete(key)

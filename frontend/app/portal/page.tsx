@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import type { PortalTab } from "@/lib/portalUi";
@@ -340,60 +341,63 @@ function PortalContent() {
         }}
       />
 
-      {rescheduleLesson && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-5 space-y-4 shadow-xl">
-            <h3 className="font-bold text-brand-blue text-lg">Запрос на перенос</h3>
-            <p className="text-sm text-slate-600">
-              Урок {formatRuDate(rescheduleLesson.lesson_date)} в{" "}
-              {formatLessonTime(rescheduleLesson.lesson_time)}
-            </p>
-            <textarea
-              value={rescheduleMsg}
-              onChange={(e) => setRescheduleMsg(e.target.value)}
-              placeholder="Почему нужно перенести?"
-              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm min-h-[80px]"
-            />
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-slate-500">Желаемая дата</label>
-                <input
-                  type="date"
-                  value={rescheduleDate}
-                  onChange={(e) => setRescheduleDate(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                />
+      {rescheduleLesson &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[210] flex items-end sm:items-center justify-center bg-black/40 p-4">
+            <div className="bg-white rounded-2xl w-full max-w-md p-5 space-y-4 shadow-xl">
+              <h3 className="font-bold text-brand-blue text-lg">Запрос на перенос</h3>
+              <p className="text-sm text-slate-600">
+                Урок {formatRuDate(rescheduleLesson.lesson_date)} в{" "}
+                {formatLessonTime(rescheduleLesson.lesson_time)}
+              </p>
+              <textarea
+                value={rescheduleMsg}
+                onChange={(e) => setRescheduleMsg(e.target.value)}
+                placeholder="Почему нужно перенести?"
+                className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm min-h-[80px]"
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-500">Желаемая дата</label>
+                  <input
+                    type="date"
+                    value={rescheduleDate}
+                    onChange={(e) => setRescheduleDate(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500">Время</label>
+                  <input
+                    type="time"
+                    value={rescheduleTime}
+                    onChange={(e) => setRescheduleTime(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="text-xs text-slate-500">Время</label>
-                <input
-                  type="time"
-                  value={rescheduleTime}
-                  onChange={(e) => setRescheduleTime(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 text-sm"
-                />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRescheduleLesson(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-medium"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  disabled={rescheduleSaving}
+                  onClick={submitReschedule}
+                  className="flex-1 py-2.5 rounded-xl bg-brand-blue text-white text-sm font-semibold disabled:opacity-50"
+                >
+                  {rescheduleSaving ? "…" : "Отправить"}
+                </button>
               </div>
             </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setRescheduleLesson(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-medium"
-              >
-                Отмена
-              </button>
-              <button
-                type="button"
-                disabled={rescheduleSaving}
-                onClick={submitReschedule}
-                className="flex-1 py-2.5 rounded-xl bg-brand-blue text-white text-sm font-semibold disabled:opacity-50"
-              >
-                {rescheduleSaving ? "…" : "Отправить"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
 
       <PortalBottomNav
         tab={tab}

@@ -9,6 +9,7 @@ import random
 import re
 from datetime import date, datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Lesson, LessonStatus, Student, StudentDailyChallenge
@@ -185,7 +186,21 @@ async def ensure_today_challenge(db: Session, student: Student) -> dict:
         status="open",
     )
     db.add(row)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = (
+            db.query(StudentDailyChallenge)
+            .filter(
+                StudentDailyChallenge.student_id == student.id,
+                StudentDailyChallenge.challenge_date == today,
+            )
+            .first()
+        )
+        if existing:
+            return _challenge_out(existing, lesson_today=False)
+        raise
     db.refresh(row)
     return _challenge_out(row, lesson_today=False)
 

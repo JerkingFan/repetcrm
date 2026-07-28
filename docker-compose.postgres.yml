@@ -1,0 +1,21 @@
+# Optional override when DATABASE_URL points at the compose Postgres service:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.postgres.yml --profile postgres --env-file .env.production up -d --build
+#
+# Wait for Postgres health before backend/worker start.
+
+services:
+  backend:
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy

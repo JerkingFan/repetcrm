@@ -229,7 +229,7 @@ export default function SettingsPage() {
         </div>
         <button
           type="submit"
-          className="w-full py-3 rounded-xl bg-brand-blue text-white font-semibold hover:bg-blue-800"
+          className="w-full py-3 rounded-xl bg-brand-blue text-white font-semibold hover:bg-brand-ink"
         >
           Изменить пароль
         </button>

@@ -26,6 +26,7 @@ def clear_access_cookie(response: Response) -> None:
         key=cfg.access_cookie_name,
         path="/",
         secure=cfg.cookie_secure,
+        httponly=True,
         samesite="lax",
     )
 

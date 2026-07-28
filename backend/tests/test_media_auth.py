@@ -39,12 +39,20 @@ def test_media_board_requires_auth(client):
 
 
 def test_docs_hidden_in_production(tmp_path, monkeypatch):
+    db_path = tmp_path / "prod_docs.db"
+    media_path = tmp_path / "media"
+    media_path.mkdir(parents=True, exist_ok=True)
+
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("SECRET_KEY", "x" * 48)
     monkeypatch.setenv("PAYMENT_WEBHOOK_SECRET", "y" * 48)
     monkeypatch.setenv("COOKIE_SECURE", "true")
     monkeypatch.setenv("CORS_ALLOW_LOCALHOST_REGEX", "false")
+    monkeypatch.setenv("CORS_ORIGINS", "https://repetcrm.ru")
+    monkeypatch.setenv("FRONTEND_PUBLIC_URL", "https://repetcrm.ru")
     monkeypatch.setenv("REDIS_URL", "")
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path.as_posix()}")
+    monkeypatch.setenv("MEDIA_DIR", str(media_path))
 
     import app.config as config_module
 
@@ -52,10 +60,12 @@ def test_docs_hidden_in_production(tmp_path, monkeypatch):
 
     import importlib
     import app.database as database_module
+    import app.db_migrate as db_migrate_module
     import app.main as main_module
 
     importlib.reload(config_module)
     importlib.reload(database_module)
+    importlib.reload(db_migrate_module)
     database_module.init_db()
     importlib.reload(main_module)
 

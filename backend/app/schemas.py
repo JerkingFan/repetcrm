@@ -242,6 +242,7 @@ class LessonCreate(BaseModel):
     is_paid: bool = False
     notes: str = ""
     meeting_url: str = ""
+    is_trial: bool = False
     recurrence: Optional[LessonRecurrenceIn] = None
 
 

@@ -9,6 +9,7 @@ import secrets
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -92,6 +93,14 @@ def apply_payment_success(
     external_id: str,
     raw_payload: str = "",
 ) -> PaymentTransaction:
+    # Lock intent row when the dialect supports it (Postgres); no-op-ish on SQLite.
+    intent = (
+        db.query(PaymentIntent)
+        .filter(PaymentIntent.id == intent.id)
+        .with_for_update()
+        .first()
+    ) or intent
+
     if intent.status == "paid":
         existing = (
             db.query(PaymentTransaction)
@@ -133,12 +142,17 @@ def apply_payment_success(
     )
     db.add(tx)
 
-    student = db.query(Student).filter(Student.id == intent.student_id).first()
+    student = (
+        db.query(Student)
+        .filter(Student.id == intent.student_id)
+        .with_for_update()
+        .first()
+    )
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
     if intent.purpose == "balance_topup":
-        student.balance = round(student.balance + intent.amount, 2)
+        student.balance = round(float(student.balance or 0) + intent.amount, 2)
     elif intent.purpose == "lesson" and intent.purpose_ref_id:
         lesson = (
             db.query(Lesson)
@@ -147,6 +161,7 @@ def apply_payment_success(
                 Lesson.student_id == intent.student_id,
                 Lesson.tutor_id == intent.tutor_id,
             )
+            .with_for_update()
             .first()
         )
         if lesson:
@@ -161,7 +176,7 @@ def apply_payment_success(
             .first()
         )
         if package:
-            student.balance = round(student.balance + intent.amount, 2)
+            student.balance = round(float(student.balance or 0) + intent.amount, 2)
 
     tutor = db.query(User).filter(User.id == intent.tutor_id).first()
     if student and tutor:
@@ -169,7 +184,21 @@ def apply_payment_success(
 
         notify_parent_payment_received(db, student=student, tutor=tutor, intent=intent)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = (
+            db.query(PaymentTransaction)
+            .filter(
+                PaymentTransaction.provider == intent.provider,
+                PaymentTransaction.external_id == external_id,
+            )
+            .first()
+        )
+        if existing:
+            return existing
+        raise
     db.refresh(tx)
     return tx
 

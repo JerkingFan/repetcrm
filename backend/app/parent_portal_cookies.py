@@ -28,6 +28,7 @@ def clear_parent_portal_cookie(response: Response) -> None:
         key=PARENT_PORTAL_COOKIE_NAME,
         path="/",
         secure=cfg.cookie_secure,
+        httponly=True,
         samesite="lax",
     )
 

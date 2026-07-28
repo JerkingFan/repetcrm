@@ -161,17 +161,32 @@ def health():
     from fastapi.responses import JSONResponse
 
     from app.services.board_bus import board_bus
+    from app.config import get_settings
 
+    cfg = get_settings()
+    redis_url = (cfg.redis_url or "").strip()
     redis = get_redis()
     db_health = get_db_health()
     db_ok = bool(db_health.get("ok"))
+
+    if not redis_url:
+        redis_status = "disabled"
+        worker_status = "in-process"
+    elif redis is not None:
+        redis_status = "connected"
+        worker_status = "arq"
+    else:
+        redis_status = "unavailable"
+        worker_status = "degraded"
+
+    healthy = db_ok and redis_status != "unavailable"
     body = {
-        "status": "ok" if db_ok else "degraded",
-        "redis": "connected" if redis is not None else "disabled",
-        "worker": "arq" if redis is not None else "in-process",
+        "status": "ok" if healthy else "degraded",
+        "redis": redis_status,
+        "worker": worker_status,
         "board_bus": "redis" if board_bus.enabled else "local",
         "database": db_health,
     }
-    if not db_ok:
+    if not healthy:
         return JSONResponse(status_code=503, content=body)
     return body

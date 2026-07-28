@@ -239,12 +239,20 @@ export default function TrialBookingSettings() {
                 <p className="text-slate-500">
                   Слот: {lead.preferred_date} {lead.preferred_time}
                 </p>
-                <Link
-                  href={`/students/${lead.student_id}`}
-                  className="text-brand-blue hover:underline text-xs"
-                >
-                  Карточка ученика →
-                </Link>
+                <div className="flex flex-wrap gap-3 pt-1">
+                  <Link
+                    href={`/lessons/new?student_id=${lead.student_id}&date=${lead.preferred_date}&time=${encodeURIComponent(lead.preferred_time)}&is_trial=1`}
+                    className="text-brand-blue hover:underline text-xs font-medium"
+                  >
+                    В расписание →
+                  </Link>
+                  <Link
+                    href={`/students/${lead.student_id}`}
+                    className="text-slate-500 hover:underline text-xs"
+                  >
+                    Карточка ученика →
+                  </Link>
+                </div>
               </li>
             ))}
           </ul>

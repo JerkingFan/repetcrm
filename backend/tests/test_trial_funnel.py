@@ -40,30 +40,54 @@ def _lead_student(client, slug_prefix: str, child_name: str = "Trial Kid") -> in
     return client.get("/book/leads/me").json()[0]["student_id"]
 
 
-def test_dashboard_trial_lessons_this_week(client):
+def test_tutor_can_schedule_manual_trial_lesson(client):
+    """Tutor marks a regular student lesson as trial — enters funnel without public booking."""
     _register(client)
-    sid = _lead_student(client, "dash")
+    sid = client.post(
+        "/students",
+        json={"name": "Offline Trial", "subject": "Math", "grade": "7"},
+    ).json()["id"]
 
     week_start, week_end = week_bounds(date.today())
-    lesson_date = (week_start + timedelta(days=1)).isoformat()
-    if week_start + timedelta(days=1) > week_end:
-        lesson_date = week_start.isoformat()
-    client.post(
+    lesson_date = week_start.isoformat()
+    if week_start > week_end:
+        lesson_date = date.today().isoformat()
+
+    res = client.post(
         "/lessons",
         json={
             "student_id": sid,
             "lesson_date": lesson_date,
-            "lesson_time": "11:00",
+            "lesson_time": "12:00",
             "duration_minutes": 60,
-            "payment_amount": 40,
+            "payment_amount": 0,
             "is_paid": False,
+            "is_trial": True,
         },
     )
+    assert res.status_code == 201, res.text
+
+    # Recurrence + trial must be rejected
+    bad = client.post(
+        "/lessons",
+        json={
+            "student_id": sid,
+            "lesson_date": date.today().isoformat(),
+            "lesson_time": "13:00",
+            "duration_minutes": 60,
+            "is_trial": True,
+            "recurrence": {"weekday": date.today().weekday(), "weeks_ahead": 4},
+        },
+    )
+    assert bad.status_code == 400
 
     dash = client.get("/dashboard/extended")
     assert dash.status_code == 200
     trials = dash.json()["trial_lessons_this_week"]
     assert any(t["student_id"] == sid for t in trials)
+
+    leads = client.get("/book/leads/me").json()
+    assert any(l["student_id"] == sid and l["status"] == "scheduled" for l in leads)
 
 
 def test_quick_conduct_and_followup_message(client):

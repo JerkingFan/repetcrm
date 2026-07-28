@@ -457,6 +457,12 @@ def _detect_legacy_revision(insp: Inspector) -> str:
     if insp.has_table("student_daily_challenges"):
         return "c3d4e5f6a7b8"
 
+    if insp.has_table("students"):
+        st_cols = {c["name"] for c in insp.get_columns("students")}
+        # Columns may exist from repair before alembic advanced — still need the table.
+        if "portal_nickname" in st_cols and not insp.has_table("student_daily_challenges"):
+            return "b2c3d4e5f6a7"
+
     if insp.has_table("lesson_reschedule_requests"):
         return "b2c3d4e5f6a7"
 

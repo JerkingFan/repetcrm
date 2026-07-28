@@ -13,7 +13,6 @@ from datetime import datetime
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
-from app.database import SessionLocal
 from app.models import Homework, HomeworkSubmission, Lesson, Student
 from app.services.homework_output import homework_plain_preview, is_latex_document, _extract_task_bodies
 from app.services.openrouter_client import OpenRouterError, call_openrouter_vision, is_configured
@@ -132,6 +131,9 @@ def _build_prompt(*, homework_text: str, student: Student, comment: str) -> str:
 
 
 async def review_submission_ai(submission_id: int) -> None:
+    # Import late so tests that reload app.database pick up the current SessionLocal.
+    from app.database import SessionLocal
+
     cfg = get_settings()
     db = SessionLocal()
     try:

@@ -227,7 +227,7 @@ export default function StudentDetailPage() {
               </div>
               <button
                 onClick={() => downloadPdf(hw.id)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-blue text-white text-sm hover:bg-blue-900 shrink-0"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-blue text-white text-sm hover:bg-brand-ink shrink-0"
               >
                 <ArrowDownTrayIcon className="w-4 h-4" />
                 PDF
@@ -272,7 +272,7 @@ export default function StudentDetailPage() {
               {l.homework_id ? (
                 <button
                   onClick={() => downloadPdf(l.homework_id!)}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-blue text-white text-sm hover:bg-blue-900"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-blue text-white text-sm hover:bg-brand-ink"
                 >
                   <ArrowDownTrayIcon className="w-4 h-4" />
                   Скачать PDF

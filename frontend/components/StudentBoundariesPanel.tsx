@@ -138,7 +138,7 @@ export default function StudentBoundariesPanel({ studentId, onApplied }: Props) 
               type="button"
               onClick={applySuggested}
               disabled={applying}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-blue text-white text-sm font-medium hover:bg-blue-900 disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-brand-blue text-white text-sm font-medium hover:bg-brand-ink disabled:opacity-50"
             >
               <ArrowPathIcon className="w-4 h-4" />
               {applying ? "Применяю…" : `Применить: ${BOUNDARY_MODE_LABELS[suggestedMode]}`}

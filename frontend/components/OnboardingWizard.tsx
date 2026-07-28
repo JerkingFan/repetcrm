@@ -266,7 +266,7 @@ export default function OnboardingWizard() {
               <button
                 type="button"
                 onClick={next}
-                className="inline-flex items-center gap-1 px-6 py-2.5 rounded-xl bg-brand-blue text-white text-sm font-semibold hover:bg-blue-900"
+                className="inline-flex items-center gap-1 px-6 py-2.5 rounded-xl bg-brand-blue text-white text-sm font-semibold hover:bg-brand-ink"
               >
                 Далее
                 <ChevronRightIcon className="w-4 h-4" />

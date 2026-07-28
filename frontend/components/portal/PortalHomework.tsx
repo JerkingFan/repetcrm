@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "@/lib/api";
 import {
   AI_VERDICT_LABEL,
   aiVerdictBoxClass,
@@ -87,10 +88,34 @@ export default function PortalHomework({
   const [dragOver, setDragOver] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const [expanded, setExpanded] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   useEffect(() => {
     setExpanded(false);
+    setDownloadError("");
   }, [selectedId]);
+
+  const downloadSubmission = async (submissionId: number, filename: string) => {
+    if (!selectedId) return;
+    setDownloadError("");
+    try {
+      const res = await fetch(api.portal.submissionFileUrl(selectedId, submissionId), {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        setDownloadError("Не удалось скачать файл");
+        return;
+      }
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      setDownloadError("Не удалось скачать файл");
+    }
+  };
 
   const todoCount = items.filter(isTodo).length;
   const doneCount = items.length - todoCount;
@@ -393,13 +418,23 @@ export default function PortalHomework({
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">
                 История отправок
               </p>
+              {downloadError && (
+                <p className="text-xs text-red-600 mb-2">{downloadError}</p>
+              )}
               <ul className="space-y-2">
                 {detail.submissions.map((s) => (
                   <li
                     key={s.id}
                     className="flex justify-between gap-2 text-sm text-slate-600 bg-slate-50 rounded-xl px-3 py-2.5"
                   >
-                    <span className="truncate font-medium">{s.original_filename}</span>
+                    <button
+                      type="button"
+                      onClick={() => downloadSubmission(s.id, s.original_filename)}
+                      className="truncate font-medium text-left text-brand-blue hover:underline"
+                      title="Скачать файл"
+                    >
+                      {s.original_filename}
+                    </button>
                     <span className="text-xs text-slate-400 shrink-0">
                       {new Date(s.submitted_at).toLocaleString("ru-RU", {
                         day: "numeric",

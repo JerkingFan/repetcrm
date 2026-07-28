@@ -560,7 +560,7 @@ export default function LessonDetailPage() {
           <button
             type="button"
             onClick={() => setShowEdit(true)}
-            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-brand-blue text-brand-blue font-medium hover:bg-blue-50"
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-brand-blue text-brand-blue font-medium hover:bg-brand-mist"
           >
             <PencilIcon className="w-5 h-5" />
             Редактировать

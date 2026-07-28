@@ -46,11 +46,11 @@ from app.services.dashboard_cache import (
     set_cached_dashboard,
 )
 from app.services.dashboard_extended import build_extended_dashboard
-from app.db_migrate import repair_legacy_schema
 from app.services.job_queue import job_queue, ARQ_TASK_GENERATE_HOMEWORK
 from app.services.job_tasks import run_generate_homework
 from app.services.pdf import invalidate_homework_pdf
 from app.services.lesson_recurrence import expand_series
+from app.services.manual_trial import apply_manual_trial_lesson
 from app.services.package_billing import try_auto_pay_lesson
 from app.services.student_lifecycle import touch_student_lesson_dates
 from app.services.trial_funnel_service import get_trial_followup
@@ -138,7 +138,11 @@ def _resolve_lesson_range(
 ) -> tuple[date, date]:
     today = date.today()
     if from_date is None and to_date is None:
-        return _month_bounds(today.year, today.month)
+        # Default: from start of previous month through ~2 months ahead
+        # (recurring series often spill into next month)
+        start = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+        end = today + timedelta(days=62)
+        return start, end
     if from_date is None:
         from_date = to_date.replace(day=1) if to_date else today.replace(day=1)
     if to_date is None:
@@ -223,7 +227,6 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
 
 @router.get("/dashboard/extended", response_model=DashboardExtended)
 def dashboard_extended(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    repair_legacy_schema()
     return build_extended_dashboard(db, user.id, tutor_name=user.name or "")
 
 
@@ -270,9 +273,24 @@ def create_lesson(data: LessonCreate, user: User = Depends(get_current_user), db
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
+    if data.is_trial and data.recurrence:
+        raise HTTPException(
+            status_code=400,
+            detail="Пробный урок нельзя создать как повторяющуюся серию",
+        )
+
     series_out: LessonSeriesOut | None = None
-    payload = data.model_dump(exclude={"recurrence"})
+    payload = data.model_dump(exclude={"recurrence", "is_trial"})
     recurrence: LessonRecurrenceIn | None = data.recurrence
+
+    if data.is_trial:
+        apply_manual_trial_lesson(
+            db,
+            tutor_id=user.id,
+            student=student,
+            lesson_date=data.lesson_date,
+            lesson_time=data.lesson_time,
+        )
 
     if recurrence:
         if data.lesson_date.weekday() != recurrence.weekday:

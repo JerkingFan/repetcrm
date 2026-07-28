@@ -191,7 +191,32 @@ class JobQueue:
             )
             self._jobs[job_id] = job
             self._active_by_key[key] = job_id
-            job_store.set_active(owner_user_id, key_type, key_value, job_id)
+            if not job_store.set_active(owner_user_id, key_type, key_value, job_id):
+                self._jobs.pop(job_id, None)
+                self._active_by_key.pop(key, None)
+                existing = await self._find_active_job(key)
+                if existing:
+                    return existing
+                peer_id = job_store.get_active(owner_user_id, key_type, key_value)
+                if peer_id:
+                    peer = await self._get(peer_id)
+                    if peer is None:
+                        peer = job_store.load_job(peer_id)
+                        if peer:
+                            self._jobs[peer.id] = peer
+                    if peer:
+                        return peer
+                # Stale lock without a loadable job — reclaim.
+                job_store.clear_active(owner_user_id, key_type, key_value)
+                if not job_store.set_active(owner_user_id, key_type, key_value, job_id):
+                    peer_id = job_store.get_active(owner_user_id, key_type, key_value)
+                    if peer_id:
+                        peer = job_store.load_job(peer_id) or await self._get(peer_id)
+                        if peer:
+                            self._jobs[peer.id] = peer
+                            return peer
+                self._jobs[job_id] = job
+                self._active_by_key[key] = job_id
             self._persist(job)
 
         dispatched = await enqueue_arq_task(arq_task, job_id, *arq_args)

@@ -237,7 +237,17 @@ async function refreshSession(): Promise<boolean> {
 }
 
 async function portalRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${getApiUrl()}${path}`, { ...options, credentials: "include" });
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  if (options.body != null && !headers["Content-Type"] && !headers["content-type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+  const res = await fetch(`${getApiUrl()}${path}`, {
+    ...options,
+    headers,
+    credentials: "include",
+  });
   if (!res.ok) {
     let detail = "Request failed";
     try {
@@ -248,11 +258,22 @@ async function portalRequest<T>(path: string, options: RequestInit = {}): Promis
     }
     throw new ApiError(detail, res.status);
   }
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 
 async function parentPortalRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${getApiUrl()}${path}`, { ...options, credentials: "include" });
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  if (options.body != null && !headers["Content-Type"] && !headers["content-type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+  const res = await fetch(`${getApiUrl()}${path}`, {
+    ...options,
+    headers,
+    credentials: "include",
+  });
   if (!res.ok) {
     let detail = "Request failed";
     try {
@@ -263,6 +284,7 @@ async function parentPortalRequest<T>(path: string, options: RequestInit = {}): 
     }
     throw new ApiError(detail, res.status);
   }
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 
@@ -953,6 +975,8 @@ export const api = {
         body: JSON.stringify(data),
       }),
     calendarIcsUrl: () => `${getApiUrl()}/portal/calendar.ics`,
+    submissionFileUrl: (homeworkId: number, submissionId: number) =>
+      `${getApiUrl()}/portal/homework/${homeworkId}/submissions/${submissionId}/file`,
     createPaymentIntent: (amount: number, provider: "erip" | "card") =>
       portalRequest<{
         id: number;

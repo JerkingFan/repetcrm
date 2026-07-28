@@ -3,6 +3,7 @@ import logging
 import random
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import create_access_token, get_password_hash, verify_password
@@ -36,7 +37,6 @@ from app.services.auth_rate_limit import (
     get_register_limiter,
     redact_email,
 )
-from app.db_migrate import repair_legacy_schema
 from app.services.auth_sessions import (
     create_session,
     get_valid_session,
@@ -88,7 +88,7 @@ def _set_refresh_cookie(response: Response, raw_token: str) -> None:
 
 def _clear_refresh_cookie(response: Response) -> None:
     cfg = get_settings()
-    kwargs = {"secure": cfg.cookie_secure, "samesite": "lax"}
+    kwargs = {"secure": cfg.cookie_secure, "httponly": True, "samesite": "lax"}
     response.delete_cookie(key=cfg.refresh_cookie_name, path="/", **kwargs)
     # старый path=/auth (до фикса nginx /api) — подчистить
     response.delete_cookie(key=cfg.refresh_cookie_name, path="/auth", **kwargs)
@@ -141,7 +141,12 @@ def register(
         onboarding_completed=False,
     )
     db.add(user)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        register_limiter.record(ip)
+        raise HTTPException(status_code=400, detail="Email already registered")
     register_limiter.record(ip)
     logger.info("auth_register_ok user_id=%s ip=%s", user.id, ip)
     invalidate_dashboard(user.id)
@@ -150,7 +155,6 @@ def register(
 
 @router.post("/login", response_model=Token)
 async def login(data: UserLogin, request: Request, response: Response, db: Session = Depends(get_db)):
-    repair_legacy_schema()
     cfg = get_settings()
     ip = get_client_ip(request)
     rate_key = _login_rate_key(ip, data.email)

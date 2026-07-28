@@ -167,5 +167,39 @@ fi
 ylw "Статус контейнеров:"
 "${COMPOSE[@]}" ps
 
+# Fail deploy if core services are not healthy/running
+fail_svc=0
+for svc in backend worker frontend redis; do
+  st="$("${COMPOSE[@]}" ps --format json "$svc" 2>/dev/null | python3 -c "
+import sys, json
+raw = sys.stdin.read().strip()
+if not raw:
+    print('missing'); raise SystemExit
+# compose v2 may emit one JSON object per line
+lines = [json.loads(l) for l in raw.splitlines() if l.strip()]
+if not lines:
+    print('missing'); raise SystemExit
+h = (lines[0].get('Health') or '').lower()
+s = (lines[0].get('State') or lines[0].get('Status') or '').lower()
+if h in ('unhealthy',):
+    print('unhealthy')
+elif 'running' not in s and 'up' not in s:
+    print(s or 'down')
+else:
+    print('ok')
+" 2>/dev/null || echo missing)"
+  if [[ "$st" != "ok" ]]; then
+    red "Сервис $svc не готов: $st"
+    fail_svc=1
+  else
+    grn "$svc: ok"
+  fi
+done
+if [[ "$fail_svc" -ne 0 ]]; then
+  "${COMPOSE[@]}" logs --tail=60 backend worker frontend || true
+  exit 1
+fi
+
 grn "Готово. Проверьте по HTTPS (COOKIE_SECURE): вход и кабинет ученика."
 grn "Логи: ${COMPOSE[*]} logs -f backend worker"
+# Postgres profile: add -f docker-compose.postgres.yml --profile postgres when DATABASE_URL uses host db.

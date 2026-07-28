@@ -58,6 +58,7 @@ export default function LessonFormModal({
     is_paid: lesson?.is_paid ?? false,
     notes: lesson?.notes ?? "",
     meeting_url: lesson?.meeting_url ?? "",
+    is_trial: false,
   });
 
   useEffect(() => {
@@ -94,6 +95,7 @@ export default function LessonFormModal({
           is_paid: form.is_paid,
           notes: form.notes,
           meeting_url: form.meeting_url.trim(),
+          is_trial: form.is_trial,
         });
         if (onSaved) onSaved();
         else router.push(`/lessons/${created.lesson.id}`);
@@ -252,6 +254,23 @@ export default function LessonFormModal({
                   ))}
                 </select>
               </div>
+            )}
+
+            {mode === "create" && (
+              <label className="flex items-start gap-3 p-3 rounded-xl border border-teal-100 bg-teal-50/60 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.is_trial}
+                  onChange={(e) => setForm({ ...form, is_trial: e.target.checked })}
+                  className="mt-0.5 w-4 h-4 rounded text-brand-blue"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-brand-ink">Пробный урок</span>
+                  <span className="block text-xs text-slate-500 mt-0.5">
+                    Ученик попадёт в воронку пробных и на дашборд «пробные на этой неделе»
+                  </span>
+                </span>
+              </label>
             )}
 
             <div className="grid grid-cols-2 gap-4">

@@ -67,13 +67,21 @@ def test_ai_review_after_photo_submit(mock_vision, mock_schedule, client):
     assert body["ai_review_status"] == "pending"
 
     import asyncio
+    import time
     from app.services.homework_submission_ai import review_submission_ai
 
     asyncio.run(review_submission_ai(body["id"]))
 
-    detail = client.get(f"/portal/homework/{hw_id}").json()
-    latest = detail["submissions"][0]
-    assert latest["ai_review_status"] == "done"
+    latest = None
+    for _ in range(20):
+        detail = client.get(f"/portal/homework/{hw_id}").json()
+        latest = detail["submissions"][0]
+        if latest.get("ai_review_status") == "done":
+            break
+        time.sleep(0.05)
+
+    assert latest is not None
+    assert latest["ai_review_status"] == "done", latest
     assert latest["ai_verdict"] == "correct"
     assert latest["ai_score"] == 92
     assert "Отлично" in latest["ai_feedback"]
