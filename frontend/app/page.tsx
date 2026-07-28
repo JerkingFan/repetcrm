@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 import LandingPage from "@/components/landing/LandingPage";
 
 export const metadata: Metadata = {
-  title: "RepetCRM — практика без хаоса",
+  title: "RepetCRM — CRM для репетиторов с AI-домашками",
   description:
-    "CRM для репетиторов: занятия, оплаты и персональные домашки с AI в одном кабинете.",
+    "Учёт занятий и оплат + AI-генерация домашних заданий за 1 минуту. Порядок вместо Excel и чатов.",
   openGraph: {
     title: "RepetCRM — практика без хаоса",
     description:
-      "Занятия, оплаты и персональные домашки с AI — без Excel и хаоса в чатах.",
+      "CRM для репетиторов: занятия, оплаты и персональные домашки с AI.",
     type: "website",
   },
 };
