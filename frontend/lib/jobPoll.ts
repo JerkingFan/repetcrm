@@ -1,7 +1,10 @@
 import { api, ApiError } from "@/lib/api";
 
 export const JOB_POLL_INTERVAL_MS = 1500;
-export const JOB_TIMEOUT_MS = 3 * 60_000;
+/** OpenRouter: до 2 запросов × OPENROUTER_TIMEOUT_SEC (обычно 120 с) + запас */
+export const JOB_TIMEOUT_MINUTES = 10;
+export const JOB_TIMEOUT_MS = JOB_TIMEOUT_MINUTES * 60_000;
+export const JOB_TIMEOUT_MESSAGE = `Превышено время ожидания (${JOB_TIMEOUT_MINUTES} мин). Попробуйте снова.`;
 
 export type JobPollResult = {
   ok: boolean;
@@ -46,6 +49,6 @@ export async function pollJobUntilDone(
 
   return {
     ok: false,
-    error: "Превышено время ожидания (3 мин). Попробуйте снова.",
+    error: JOB_TIMEOUT_MESSAGE,
   };
 }

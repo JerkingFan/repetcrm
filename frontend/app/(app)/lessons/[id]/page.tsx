@@ -20,7 +20,7 @@ import { sanitizeHomeworkHtml } from "@/lib/sanitizeHtml";
 import LessonHomeworkForm from "@/components/LessonHomeworkForm";
 import { defaultHomeworkPrefs, HomeworkPrefs } from "@/lib/homeworkPrefs";
 import { formatMoney } from "@/lib/currency";
-import { pollJobUntilDone, JOB_POLL_INTERVAL_MS, JOB_TIMEOUT_MS } from "@/lib/jobPoll";
+import { pollJobUntilDone, JOB_POLL_INTERVAL_MS, JOB_TIMEOUT_MS, JOB_TIMEOUT_MESSAGE } from "@/lib/jobPoll";
 import HomeworkTemplatesPanel from "@/components/HomeworkTemplatesPanel";
 import VoiceBriefButton from "@/components/VoiceBriefButton";
 import TrialFollowupBanner from "@/components/TrialFollowupBanner";
@@ -176,7 +176,7 @@ export default function LessonDetailPage() {
         window.localStorage.removeItem(key);
         setJobStatus("error");
         setGenerating(false);
-        setError("Превышено время ожидания (3 мин). Попробуйте снова.");
+        setError(JOB_TIMEOUT_MESSAGE);
         return;
       }
       try {
