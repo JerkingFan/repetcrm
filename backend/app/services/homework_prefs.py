@@ -231,9 +231,25 @@ def _latex_structure_rules(p: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
-def build_system_prompt_for_homework(prefs: dict[str, Any] | str | None) -> str:
+def tasks_per_topic_for_ai(
+    prefs: dict[str, Any] | str | None, topic_count: int
+) -> tuple[str, str]:
+    """Меньше задач на тему, если тем много — быстрее ответ OpenRouter."""
     p = parse_homework_prefs(prefs)
     lo, hi = VOLUME_TASKS_PER_TOPIC.get(p.get("volume", "standard"), ("6", "9"))
+    n = max(1, topic_count)
+    if n >= 3:
+        return "3", "4"
+    if n == 2:
+        return "4", "6"
+    return lo, hi
+
+
+def build_system_prompt_for_homework(
+    prefs: dict[str, Any] | str | None, *, topic_count: int = 1
+) -> str:
+    p = parse_homework_prefs(prefs)
+    lo, hi = tasks_per_topic_for_ai(p, topic_count)
     return (
         "Ты генератор LaTeX-документов для домашних заданий репетитора. "
         "Ты НЕ чат-ассистент: не здоровайся, не объясняй, не спрашивай уточнений. "
@@ -255,7 +271,7 @@ def build_user_prompt_for_homework(
     p = parse_homework_prefs(homework_prefs)
     checklist_merged = apply_prefs_to_checklist(checklist, p, force=True)
     topics_block = format_checklist_for_prompt(checklist_merged)
-    lo, hi = VOLUME_TASKS_PER_TOPIC.get(p.get("volume", "standard"), ("6", "9"))
+    lo, hi = tasks_per_topic_for_ai(p, len(checklist_merged))
     grade_line = f"\nКласс ученика: {grade}." if grade else ""
     u = int(p.get("understanding_global", 3))
 

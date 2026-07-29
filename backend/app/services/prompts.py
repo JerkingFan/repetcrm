@@ -33,5 +33,7 @@ def build_homework_prompt_compact(
     return build_homework_prompt(student_name, subject, checklist, grade, homework_prefs)
 
 
-def build_homework_system_prompt(homework_prefs: dict | None = None) -> str:
-    return build_system_prompt_for_homework(homework_prefs)
+def build_homework_system_prompt(
+    homework_prefs: dict | None = None, *, topic_count: int = 1
+) -> str:
+    return build_system_prompt_for_homework(homework_prefs, topic_count=topic_count)

@@ -8,7 +8,7 @@ import httpx
 
 from app.config import get_settings, openrouter_key_hint
 from app.services.circuit_breaker import CircuitBreaker, CircuitOpenError
-from app.services.homework_output import coerce_openrouter_latex
+from app.services.homework_output import accept_openrouter_latex, coerce_openrouter_latex
 from app.services.homework_prefs import parse_homework_prefs
 from app.services.prompts import build_homework_prompt, build_homework_system_prompt
 
@@ -67,18 +67,27 @@ def _headers() -> dict[str, str]:
     }
 
 
-async def _call_openrouter(messages: list[dict]) -> str:
+async def _call_openrouter(
+    messages: list[dict],
+    *,
+    max_tokens: int | None = None,
+    timeout_sec: float | None = None,
+) -> str:
     cfg = get_settings()
     try:
         _openrouter_circuit.before_call()
     except CircuitOpenError as exc:
         raise OpenRouterError("OpenRouter временно недоступен (circuit open)") from exc
 
+    token_cap = max_tokens if max_tokens is not None else min(2000, cfg.openrouter_max_tokens)
+    req_timeout = timeout_sec if timeout_sec is not None else min(90.0, cfg.openrouter_timeout_sec)
+
     payload = {
         "model": cfg.openrouter_model,
         "messages": messages,
         "temperature": 0.25,
-        "max_tokens": min(2800, cfg.openrouter_max_tokens),
+        "max_tokens": token_cap,
+        "provider": {"allow_fallbacks": True},
     }
     url = f"{cfg.openrouter_base_url.rstrip('/')}/chat/completions"
     max_retries = max(1, cfg.openrouter_max_retries)
@@ -86,7 +95,7 @@ async def _call_openrouter(messages: list[dict]) -> str:
 
     for attempt in range(max_retries):
         try:
-            async with httpx.AsyncClient(timeout=cfg.openrouter_timeout_sec) as client:
+            async with httpx.AsyncClient(timeout=req_timeout) as client:
                 response = await client.post(url, headers=_headers(), json=payload)
                 if response.status_code == 401:
                     raise OpenRouterError(
@@ -256,7 +265,8 @@ async def generate_homework_with_openrouter(
 
     cfg = get_settings()
     prefs = parse_homework_prefs(homework_prefs)
-    system_prompt = build_homework_system_prompt(prefs)
+    topic_count = len(checklist)
+    system_prompt = build_homework_system_prompt(prefs, topic_count=topic_count)
     user_prompt = build_homework_prompt(
         student_name, subject, checklist, grade, prefs
     )
@@ -266,16 +276,22 @@ async def generate_homework_with_openrouter(
     ]
 
     try:
-        raw = await _call_openrouter(messages)
+        raw = await _call_openrouter(messages, max_tokens=2000, timeout_sec=75.0)
         logger.info(
-            "OpenRouter: %s chars, model %s",
+            "OpenRouter: %s chars, model %s, topics=%s",
             len(raw),
             cfg.openrouter_model,
+            topic_count,
         )
         try:
             return coerce_openrouter_latex(raw, homework_prefs=prefs)
         except ValueError as first_err:
             logger.info("OpenRouter pass1 coerce: %s", first_err)
+
+        content, issues = accept_openrouter_latex(raw, homework_prefs=prefs)
+        if content:
+            logger.info("OpenRouter pass1 lenient accept (%s)", ", ".join(issues) or "ok")
+            return content
 
         fix_user = (
             "Ответ не в формате LaTeX. Выведи ЗАНОВО ТОЛЬКО LaTeX code: "
@@ -284,7 +300,7 @@ async def generate_homework_with_openrouter(
         )
         messages.append({"role": "assistant", "content": raw[:4000]})
         messages.append({"role": "user", "content": fix_user})
-        raw2 = await _call_openrouter(messages)
+        raw2 = await _call_openrouter(messages, max_tokens=2000, timeout_sec=75.0)
         logger.info("OpenRouter retry: %s chars", len(raw2))
         return coerce_openrouter_latex(raw2, homework_prefs=prefs)
     except httpx.TimeoutException as e:

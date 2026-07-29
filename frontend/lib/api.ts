@@ -316,13 +316,16 @@ async function publicRequest<T>(path: string, options: RequestInit = {}): Promis
   return res.json();
 }
 
-async function request<T>(path: string, options: RequestInit = {}, retried = false): Promise<T> {
+type RequestOptions = RequestInit & { timeoutMs?: number };
+
+async function request<T>(path: string, options: RequestOptions = {}, retried = false): Promise<T> {
+  const { timeoutMs, ...fetchOptions } = options;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
+    ...(fetchOptions.headers as Record<string, string>),
   };
 
-  const method = (options.method || "GET").toUpperCase();
+  const method = (fetchOptions.method || "GET").toUpperCase();
   const cacheKey = `repetcrm_offline_cache:${path}`;
 
   const isOffline = () => typeof navigator !== "undefined" && !navigator.onLine;
@@ -336,10 +339,17 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
     return false;
   };
 
+  const controller = timeoutMs ? new AbortController() : null;
+  const timeoutId =
+    timeoutMs && typeof window !== "undefined"
+      ? window.setTimeout(() => controller?.abort(), timeoutMs)
+      : null;
+
   try {
     const res = await authFetch(`${getApiUrl()}${path}`, {
-      ...options,
+      ...fetchOptions,
       headers,
+      signal: controller?.signal,
     });
 
     if (res.status === 401 && !retried && !path.startsWith("/auth/login") && !path.startsWith("/auth/register")) {
@@ -368,6 +378,9 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
     }
     return json;
   } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError("Превышено время ожидания ответа сервера", 408);
+    }
     // Offline fallback
     if (isOffline() && method === "GET") {
       const cached = getOfflineCache(cacheKey);
@@ -379,12 +392,14 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
       enqueueMutation({
         method,
         path,
-        body: typeof options.body === "string" ? options.body : undefined,
+        body: typeof fetchOptions.body === "string" ? fetchOptions.body : undefined,
       });
       return { offline_queued: true } as unknown as T;
     }
 
     throw err;
+  } finally {
+    if (timeoutId) window.clearTimeout(timeoutId);
   }
 }
 
@@ -703,7 +718,7 @@ export const api = {
         } | null;
       }>(`/lessons/${id}/quick-conduct`, { method: "POST" }),
     generateHomework: <T = unknown>(id: number) =>
-      request<T>(`/lessons/${id}/generate-homework`, { method: "POST" }),
+      request<T>(`/lessons/${id}/generate-homework`, { method: "POST", timeoutMs: 180_000 }),
   },
 
   boards: {

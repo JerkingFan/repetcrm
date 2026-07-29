@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # ARQ registers tasks by function name
 ARQ_TASK_GENERATE_HOMEWORK = "generate_homework_task"
 ARQ_TASK_BUILD_PDF = "build_pdf_task"
-QUEUE_STUCK_MS = 20_000
+QUEUE_STUCK_MS = 5_000
 WORKER_OFFLINE_ERROR = (
     "Фоновый worker не отвечает. Запустите: arq app.worker_settings.WorkerSettings "
     "(или docker compose up worker). Либо уберите REDIS_URL для режима без worker."
@@ -260,6 +260,9 @@ class JobQueue:
             return job
 
         logger.info("job %s running in-process (ARQ/worker unavailable)", job_id)
+        job.status = "running"
+        job.updated_at_ms = self._now_ms()
+        await self._set(job)
         asyncio.create_task(self._run_in_process(job, key, inprocess_runner))
         return job
 

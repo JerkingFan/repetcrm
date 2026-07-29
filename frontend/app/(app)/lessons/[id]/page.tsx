@@ -281,26 +281,36 @@ export default function LessonDetailPage() {
 
   const generate = async () => {
     setGenerating(true);
+    setJobStatus("running");
     setError("");
     setSuccess("");
+    setJobHint("Генерируем через AI — обычно 10–40 сек…");
     try {
       if (!isConducted) {
         setError("Сначала отметьте занятие проведённым и сохраните чек-лист");
         setGenerating(false);
+        setJobStatus("idle");
         return;
       }
       const ok = await saveLessonReport(true);
       if (!ok) {
         setGenerating(false);
+        setJobStatus("idle");
         return;
       }
-      const started = await api.lessons.startHomeworkJob(lessonId);
+      const hw = await api.lessons.generateHomework<{
+        id: number;
+        generation_hint?: string | null;
+      }>(lessonId);
       const key = `repetcrm:hw_job:${lessonId}`;
-      window.localStorage.setItem(key, started.job_id);
-      setJobId(started.job_id);
-      setJobStatus(started.status === "running" ? "running" : "queued");
-      setJobHint("Генерируем домашнее задание в фоне — обычно 30–90 сек через OpenRouter.");
+      window.localStorage.removeItem(key);
+      setJobId(null);
+      setJobStatus("done");
+      setHomeworkId(hw.id);
+      await load();
+      setSuccess(hw.generation_hint || "Домашнее задание готово.");
     } catch (e) {
+      setJobStatus("error");
       const msg = e instanceof ApiError ? e.message : "Ошибка генерации";
       setError(msg);
     } finally {
