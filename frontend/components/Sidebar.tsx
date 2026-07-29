@@ -14,12 +14,14 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   SparklesIcon,
+  MagnifyingGlassIcon,
 } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import { api } from "@/lib/api";
 
 const nav = [
   { href: "/dashboard", label: "Дашборд", icon: HomeIcon },
+  { href: "/search", label: "Поиск", icon: MagnifyingGlassIcon },
   { href: "/students", label: "Ученики", icon: UserGroupIcon },
   { href: "/lessons", label: "Занятия", icon: CalendarDaysIcon },
   { href: "/prompts", label: "Промпты ДЗ", icon: SparklesIcon },

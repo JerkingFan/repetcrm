@@ -6,6 +6,7 @@ __pycache__/
 .env
 .env.local
 .env.production
+.env.docker
 backups/
 repetcrm-deploy.zip
 data/

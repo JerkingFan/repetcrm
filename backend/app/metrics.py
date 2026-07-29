@@ -85,10 +85,14 @@ def setup_metrics(app: FastAPI, cfg: Settings) -> None:
 
     @app.get("/metrics", include_in_schema=False)
     def metrics_endpoint(request: Request) -> Response:
-        if cfg.is_production and cfg.metrics_token:
+        if cfg.is_production:
+            token = (cfg.metrics_token or "").strip()
             auth = request.headers.get("authorization", "")
-            expected = f"Bearer {cfg.metrics_token}"
-            if auth != expected:
+            if not token or auth != f"Bearer {token}":
+                return Response(status_code=401, content="Unauthorized")
+        elif cfg.metrics_token:
+            auth = request.headers.get("authorization", "")
+            if auth != f"Bearer {cfg.metrics_token}":
                 return Response(status_code=401, content="Unauthorized")
 
         refresh_runtime_gauges(cfg)

@@ -1,7 +1,7 @@
 # Production: docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
 #
-# ВАЖНО: реальные пользователи по умолчанию в SQLite volume backend_data.
-# Не переключайте на PostgreSQL без явной миграции данных!
+# По умолчанию PostgreSQL + Redis + 2 uvicorn workers (см. .env.production.example).
+# Миграция с SQLite: deploy/DEPLOY.md и scripts/migrate_sqlite_to_postgres.py
 #
 # Порты backend/frontend по умолчанию только на localhost — снаружи должен стоять nginx.
 
@@ -21,8 +21,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    profiles:
-      - postgres
 
   redis:
     image: redis:7-alpine
@@ -54,16 +52,19 @@ services:
     env_file:
       - .env.production
     environment:
-      DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/repetcrm.db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://${POSTGRES_USER:-repetcrm}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-repetcrm}}
       REDIS_URL: ${REDIS_URL:-redis://:changeme@redis:6379/0}
       MEDIA_DIR: /app/media
       APP_ENV: ${APP_ENV:-production}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       CORS_ALLOW_LOCALHOST_REGEX: ${CORS_ALLOW_LOCALHOST_REGEX:-false}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-2}
     volumes:
       - backend_data:/app/data
       - backend_media:/app/media
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -89,7 +90,7 @@ services:
     env_file:
       - .env.production
     environment:
-      DATABASE_URL: ${DATABASE_URL:-sqlite:///./data/repetcrm.db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://${POSTGRES_USER:-repetcrm}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-repetcrm}}
       REDIS_URL: ${REDIS_URL:-redis://:changeme@redis:6379/0}
       MEDIA_DIR: /app/media
       APP_ENV: ${APP_ENV:-production}
@@ -99,6 +100,8 @@ services:
       - backend_data:/app/data
       - backend_media:/app/media
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
       backend:

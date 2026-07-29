@@ -92,6 +92,43 @@ repetcrm/
 
 **Виртуальная доска (WebSocket):** увеличьте `proxy_read_timeout` для `/api/boards/ws/` (см. пример nginx и [deploy/WEBSOCKET.md](WEBSOCKET.md)). Для API с доской рекомендуется **`uvicorn --workers 1`** или Redis pub/sub между воркерами.
 
+#### Security headers
+
+Пример в `deploy/nginx/repetcrm.conf.example` (блок `server {}` для HTTPS):
+
+| Заголовок | Назначение |
+|-----------|------------|
+| `Strict-Transport-Security` | Принудительный HTTPS (HSTS), 1 год |
+| `X-Frame-Options: SAMEORIGIN` | Защита от clickjacking |
+| `X-Content-Type-Options: nosniff` | Запрет MIME-sniffing |
+| `Referrer-Policy` | Ограничение утечки Referer |
+| `Content-Security-Policy` | Ограничение источников скриптов, стилей, API |
+
+**CSP и Next.js:** для App Router нужны `'unsafe-inline'` в `script-src` и `style-src` (inline chunks и Tailwind). `connect-src 'self' https: wss:` покрывает `/api` и WebSocket доски на том же домене. При подключении внешних аналитик/Sentry добавьте их домены в CSP.
+
+После правок: `nginx -t && systemctl reload nginx`.
+
+#### Request ID (корреляция логов)
+
+1. В `/etc/nginx/nginx.conf` внутри `http {}` (рядом с `limit_req_zone`):
+
+   ```nginx
+   map $http_x_request_id $repetcrm_request_id {
+       default $http_x_request_id;
+       ""      $request_id;
+   }
+   ```
+
+2. В `proxy_set_header` для `/api/` и WebSocket: `X-Request-ID $repetcrm_request_id;`
+
+Backend (`RequestIdMiddleware`) принимает входящий `X-Request-ID` или генерирует UUID, возвращает его в ответе и включает в JSON-ошибки (`request_id`) и structured logs (`rid=...`). При инциденте на проде: найдите ID в ответе клиента или nginx access log → `docker compose logs backend | grep <id>`.
+
+Формат ошибок API:
+
+```json
+{"detail": "...", "code": "validation_error|database_error|http_error|internal_error", "request_id": "...", "errors": []}
+```
+
 ---
 
 ## Вариант 2: Без Docker (VPS вручную)
@@ -119,6 +156,7 @@ Systemd: `deploy/systemd/repetcrm-backend.service`
 
 ```bash
 cd /opt/repetcrm/frontend
+# Node 22 (см. .nvmrc и frontend/Dockerfile)
 echo "NEXT_PUBLIC_API_URL=https://api.example.com" > .env.local
 npm ci
 npm run build
@@ -183,6 +221,54 @@ curl -s http://127.0.0.1:8000/health
 
 ---
 
+## Бэкап PostgreSQL
+
+После миграции на PostgreSQL (`DATABASE_URL=postgresql+...`) используйте `pg_dump`, а не SQLite-скрипт.
+
+**Автоматически (cron, ежедневно в 3:15):**
+
+```bash
+15 3 * * * cd /opt/repetcrm && ./deploy/scripts/backup-postgres.sh >> /var/log/repetcrm-pg-backup.log 2>&1
+```
+
+Скрипт `deploy/scripts/backup-postgres.sh`:
+- если поднят Docker Compose с сервисом `db` — делает `pg_dump` через `docker compose exec`;
+- иначе — использует `DATABASE_URL` / `pg_dump` на хосте.
+
+Бэкапы: `backups/postgres/repetcrm_pg_YYYYMMDD_HHMMSS.sql.gz`.
+
+**Вручную:**
+
+```bash
+chmod +x deploy/scripts/backup-postgres.sh
+./deploy/scripts/backup-postgres.sh
+```
+
+**Восстановление** (остановите API на время restore):
+
+```bash
+# Docker Compose
+gunzip -c backups/postgres/repetcrm_pg_20250729_031500.sql.gz | \
+  docker compose -f docker-compose.prod.yml --env-file .env.production \
+  exec -T db psql -U repetcrm -d repetcrm
+
+# Или в чистую БД (пересоздать volume):
+docker compose -f docker-compose.prod.yml --env-file .env.production stop backend worker
+docker compose -f docker-compose.prod.yml --env-file .env.production exec -T db \
+  psql -U repetcrm -d postgres -c "DROP DATABASE IF EXISTS repetcrm WITH (FORCE);"
+docker compose -f docker-compose.prod.yml --env-file .env.production exec -T db \
+  psql -U repetcrm -d postgres -c "CREATE DATABASE repetcrm;"
+gunzip -c backups/postgres/repetcrm_pg_*.sql.gz | \
+  docker compose -f docker-compose.prod.yml --env-file .env.production exec -T db \
+  psql -U repetcrm -d repetcrm
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d backend worker
+curl -s http://127.0.0.1:8000/health
+```
+
+Проверяйте бэкапы периодически: разворачивайте dump на staging и сверяйте `users_count` в `/health`.
+
+---
+
 ## Чеклист перед открытием пользователям
 
 - [ ] `DATABASE_URL=sqlite:///./data/repetcrm.db` (если не мигрировали на Postgres)
@@ -220,7 +306,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production logs -f wor
 
 ### Метрики и логи
 
-- **Логи:** в production JSON в stdout (`LOG_FORMAT=auto`). Смотреть: `docker compose logs -f backend`.
+- **Логи:** в production JSON в stdout (`LOG_FORMAT=auto`). Каждая строка содержит `request_id` (или `[rid=...]` в text-режиме) — см. Request ID выше.
 - **Prometheus:** `GET /metrics` — `http_requests_total`, `http_request_duration_seconds`, `repetcrm_users_total`, `repetcrm_redis_up`.
 - В production задайте `METRICS_TOKEN` и ограничьте `/metrics` в nginx (внутренняя сеть или Bearer).
 

@@ -507,6 +507,7 @@ def needs_pdf_latex_rebuild(text: str) -> bool:
 
 def homework_content_to_html(content: str, *, render_math_images: bool = False) -> str:
     """LaTeX или HTML → HTML для превью и PDF."""
+    from app.services.html_utils import sanitize_homework_html
     from app.services.latex_convert import latex_document_to_html, normalize_homework_latex_document
 
     if not content or not content.strip():
@@ -518,14 +519,22 @@ def homework_content_to_html(content: str, *, render_math_images: bool = False) 
         normalized = normalize_math_delimiters(content)
         html = latex_document_to_html(normalized) or latex_document_to_html(content)
         if html:
-            return process_homework_html(
-                normalize_math_delimiters(html), render_images=render_math_images
+            return sanitize_homework_html(
+                process_homework_html(
+                    normalize_math_delimiters(html), render_images=render_math_images
+                )
             )
     if content.lstrip().startswith("<"):
-        return process_homework_html(content, render_images=render_math_images)
+        return sanitize_homework_html(
+            process_homework_html(content, render_images=render_math_images)
+        )
     if _cyrillic_ratio(content) >= MIN_CYRILLIC_RATIO:
-        return process_homework_html(_plain_to_html(content), render_images=render_math_images)
-    return process_homework_html(f"<div>{content}</div>", render_images=render_math_images)
+        return sanitize_homework_html(
+            process_homework_html(_plain_to_html(content), render_images=render_math_images)
+        )
+    return sanitize_homework_html(
+        process_homework_html(f"<div>{content}</div>", render_images=render_math_images)
+    )
 
 
 def homework_plain_preview(content: str, *, max_len: int = 160) -> tuple[str, int]:

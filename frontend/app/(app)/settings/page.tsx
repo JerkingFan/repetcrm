@@ -8,6 +8,21 @@ import { SUBJECT_PRESETS, GRADE_PRESETS, TEACHING_FORMATS } from "@/lib/constant
 import Alert from "@/components/Alert";
 import TrialBookingSettings from "@/components/TrialBookingSettings";
 import PaymentRequisitesSettings from "@/components/PaymentRequisitesSettings";
+import Skeleton from "@/components/Skeleton";
+
+function SettingsCardSkeleton({ lines = 3 }: { lines?: number }) {
+  return (
+    <div className="mt-8 p-6 rounded-2xl bg-white border shadow-sm space-y-4">
+      <Skeleton className="h-6 w-40" />
+      {Array.from({ length: lines }).map((_, i) => (
+        <div key={i} className="space-y-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-5 w-48" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const [user, setUser] = useState<{
@@ -172,15 +187,15 @@ export default function SettingsPage() {
       <div className="mt-8 p-6 rounded-2xl bg-white border shadow-sm space-y-4">
         <div>
           <p className="text-sm text-slate-500">Имя</p>
-          <p className="font-medium">{user?.name || "—"}</p>
+          <p className="font-medium">{user ? user.name : <Skeleton className="h-5 w-40" />}</p>
         </div>
         <div>
           <p className="text-sm text-slate-500">Email</p>
-          <p className="font-medium">{user?.email || "—"}</p>
+          <p className="font-medium">{user ? user.email : <Skeleton className="h-5 w-56" />}</p>
         </div>
         <div>
           <p className="text-sm text-slate-500">Формат занятий</p>
-          <p className="font-medium">{formatLabel}</p>
+          <p className="font-medium">{user ? formatLabel : <Skeleton className="h-5 w-36" />}</p>
         </div>
         <Link
           href="/onboarding?retake=1"
@@ -235,7 +250,7 @@ export default function SettingsPage() {
         </button>
       </form>
 
-      {notify && (
+      {notify ? (
         <div className="mt-8 p-6 rounded-2xl bg-white border shadow-sm space-y-4">
           <h2 className="font-semibold text-brand-blue">Напоминания</h2>
           <p className="text-sm text-slate-500">
@@ -346,20 +361,22 @@ export default function SettingsPage() {
             Сохранить уведомления
           </button>
         </div>
+      ) : (
+        <SettingsCardSkeleton lines={5} />
       )}
 
       <div className="mt-8 p-6 rounded-2xl bg-white border shadow-sm space-y-8">
         <div>
           <p className="text-sm text-slate-500">Имя</p>
-          <p className="font-medium">{user?.name || "—"}</p>
+          <p className="font-medium">{user ? user.name : <Skeleton className="h-5 w-40" />}</p>
         </div>
         <div>
           <p className="text-sm text-slate-500">Email</p>
-          <p className="font-medium">{user?.email || "—"}</p>
+          <p className="font-medium">{user ? user.email : <Skeleton className="h-5 w-56" />}</p>
         </div>
         <div>
           <p className="text-sm text-slate-500">Формат занятий</p>
-          <p className="font-medium">{formatLabel}</p>
+          <p className="font-medium">{user ? formatLabel : <Skeleton className="h-5 w-36" />}</p>
         </div>
         <Link
           href="/onboarding?retake=1"
@@ -495,7 +512,10 @@ export default function SettingsPage() {
             )}
           </div>
         ) : (
-          <p className="text-sm text-slate-500 mt-2">Загрузка статуса…</p>
+          <div className="mt-3 space-y-2">
+            <Skeleton className="h-4 w-52" />
+            <Skeleton className="h-4 w-44" />
+          </div>
         )}
       </div>
     </div>

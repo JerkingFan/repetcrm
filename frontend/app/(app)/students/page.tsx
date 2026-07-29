@@ -15,6 +15,15 @@ import { api, ApiError, StudentListItem } from "@/lib/api";
 import LoadingSpinner from "@/components/LoadingSpinner";
 import Alert from "@/components/Alert";
 import BoundaryModeBadge from "@/components/BoundaryModeBadge";
+import Skeleton from "@/components/Skeleton";
+import {
+  CONTACT_MAX,
+  EMAIL_MAX,
+  NAME_MAX,
+  NOTES_MAX,
+  PHONE_MAX,
+  SCHOOL_MAX,
+} from "@/lib/fieldLimits";
 
 const emptyForm = {
   name: "",
@@ -29,6 +38,39 @@ const emptyForm = {
   parent_contact: "",
   notes: "",
 };
+
+function StudentsSkeleton() {
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="space-y-2">
+          <Skeleton className="h-9 w-36" />
+          <Skeleton className="h-4 w-72" />
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Skeleton className="h-10 w-56" />
+          <Skeleton className="h-10 w-44" />
+          <Skeleton className="h-11 w-32" />
+        </div>
+      </div>
+
+      <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="p-6 rounded-2xl bg-white border border-slate-100 shadow-sm space-y-3">
+            <div className="flex gap-2">
+              <Skeleton className="h-6 w-20 rounded-full" />
+              <Skeleton className="h-6 w-16 rounded-full" />
+            </div>
+            <Skeleton className="h-6 w-36" />
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function StudentsPage() {
   const [students, setStudents] = useState<StudentListItem[]>([]);
@@ -137,9 +179,21 @@ export default function StudentsPage() {
     }
     try {
       if (modal === "create") {
-        await api.students.create(form);
+        const res = (await api.students.create(form)) as any;
+        if (res?.offline_queued) {
+          setModal(null);
+          setError("Сохранено офлайн. Изменения будут применены при восстановлении сети.");
+          load();
+          return;
+        }
       } else if (editId) {
-        await api.students.update(editId, form);
+        const res = (await api.students.update(editId, form)) as any;
+        if (res?.offline_queued) {
+          setModal(null);
+          setError("Сохранено офлайн. Изменения будут применены при восстановлении сети.");
+          load();
+          return;
+        }
       }
       setModal(null);
       setError("");
@@ -152,14 +206,19 @@ export default function StudentsPage() {
   const remove = async (id: number) => {
     if (!confirm("Удалить ученика и все связанные занятия?")) return;
     try {
-      await api.students.delete(id);
+      const res = (await api.students.delete(id)) as any;
+      if (res?.offline_queued) {
+        setError("Удаление сохранено офлайн. Изменения будут применены при восстановлении сети.");
+        load();
+        return;
+      }
       load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Ошибка удаления");
     }
   };
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) return <StudentsSkeleton />;
 
   return (
     <div>
@@ -377,6 +436,8 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   className="w-full px-4 py-3 rounded-xl border"
                   placeholder="Анна Иванова"
+                  required
+                  maxLength={NAME_MAX}
                 />
               </div>
               {profileReady ? (
@@ -435,6 +496,7 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, school: e.target.value })}
                   className="w-full px-4 py-3 rounded-xl border"
                   placeholder="Лицей № 12"
+                  maxLength={SCHOOL_MAX}
                 />
               </div>
               <div className="sm:col-span-2 border-t border-slate-100 pt-4 mt-2">
@@ -450,6 +512,7 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, parent_name: e.target.value })}
                   className="w-full px-4 py-3 rounded-xl border"
                   placeholder="Мария"
+                  maxLength={NAME_MAX}
                 />
               </div>
               <div>
@@ -460,6 +523,7 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, parent_email: e.target.value })}
                   className="w-full px-4 py-3 rounded-xl border"
                   placeholder="parent@example.com"
+                  maxLength={EMAIL_MAX}
                 />
               </div>
               <div>
@@ -469,6 +533,7 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, parent_phone: e.target.value })}
                   className="w-full px-4 py-3 rounded-xl border"
                   placeholder="+375 ..."
+                  maxLength={PHONE_MAX}
                 />
               </div>
               <div className="flex items-end">
@@ -489,6 +554,7 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, contact: e.target.value })}
                   className="w-full px-4 py-3 rounded-xl border"
                   placeholder="Telegram, телефон"
+                  maxLength={CONTACT_MAX}
                 />
               </div>
               <div className="sm:col-span-2">
@@ -498,6 +564,7 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
                   className="w-full px-4 py-3 rounded-xl border h-20 text-sm"
                   placeholder="Цели, особенности, пробелы..."
+                  maxLength={NOTES_MAX}
                 />
               </div>
             </div>

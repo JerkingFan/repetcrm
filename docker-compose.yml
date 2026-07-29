@@ -37,8 +37,10 @@ services:
     build: ./backend
     ports:
       - "8000:8000"
+    env_file:
+      - path: .env.docker
+        required: false
     environment:
-      SECRET_KEY: repetcrm-docker-secret-change-me
       DATABASE_URL: sqlite:///./data/repetcrm.db
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: qwen2.5:3b
@@ -47,6 +49,8 @@ services:
       MEDIA_DIR: ./media
       AI_ALLOW_TEMPLATE_FALLBACK: "true"
       REDIS_URL: redis://redis:6379/0
+      APP_ENV: development
+      SECRET_KEY: ${SECRET_KEY:-repetcrm-local-dev-only-not-for-production-min-32-chars}
     volumes:
       - backend_data:/app/data
       - backend_media:/app/media
@@ -60,13 +64,17 @@ services:
   worker:
     build: ./backend
     command: ["arq", "app.worker_settings.WorkerSettings"]
+    env_file:
+      - path: .env.docker
+        required: false
     environment:
-      SECRET_KEY: repetcrm-docker-secret-change-me
       DATABASE_URL: sqlite:///./data/repetcrm.db
       REDIS_URL: redis://redis:6379/0
       MEDIA_DIR: ./media
       AI_ALLOW_TEMPLATE_FALLBACK: "true"
       HOMEWORK_AI_PROVIDER: smart
+      APP_ENV: development
+      SECRET_KEY: ${SECRET_KEY:-repetcrm-local-dev-only-not-for-production-min-32-chars}
     volumes:
       - backend_data:/app/data
       - backend_media:/app/media

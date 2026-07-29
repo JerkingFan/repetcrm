@@ -1,4 +1,5 @@
 import calendar
+import logging
 import secrets
 from datetime import date, datetime, timedelta
 
@@ -55,6 +56,8 @@ from app.services.package_billing import try_auto_pay_lesson
 from app.services.student_lifecycle import touch_student_lesson_dates
 from app.services.trial_funnel_service import get_trial_followup
 from app.services.portal_student import default_homework_due_date
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["lessons"])
 
@@ -506,7 +509,16 @@ async def generate_lesson_homework(
             homework_prefs=prefs,
         )
     except (OllamaError, OpenRouterError) as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        logger.warning(
+            "homework AI unavailable lesson_id=%s: %s",
+            lesson_id,
+            e,
+            extra={"lesson_id": lesson_id},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Сервис генерации ДЗ временно недоступен. Попробуйте позже.",
+        )
     if lesson.homework:
         lesson.homework.homework_text = html
         hw = lesson.homework

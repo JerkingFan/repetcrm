@@ -24,6 +24,8 @@ def test_production_accepts_strong_secret():
         cors_allow_localhost_regex=False,
         payment_webhook_secret="x" * 48,
         frontend_public_url="https://repetcrm.ru",
+        redis_url="redis://:secret@localhost:6379/0",
+        metrics_token="y" * 48,
     )
     validate_production_settings(cfg)
 
@@ -36,6 +38,8 @@ def test_production_accepts_public_url_from_cors():
         cors_allow_localhost_regex=False,
         frontend_public_url="http://localhost:3000",
         cors_origins="https://repetcrm.ru",
+        redis_url="redis://:secret@localhost:6379/0",
+        metrics_token="y" * 48,
     )
     validate_production_settings(cfg)
 
@@ -65,8 +69,44 @@ def test_production_allows_missing_webhook_secret():
         cors_allow_localhost_regex=False,
         payment_webhook_secret="",
         frontend_public_url="https://repetcrm.ru",
+        redis_url="redis://:secret@localhost:6379/0",
+        metrics_token="y" * 48,
     )
     validate_production_settings(cfg)
+
+
+def test_production_requires_redis_url():
+    cfg = Settings(
+        app_env="production",
+        secret_key="x" * 48,
+        cookie_secure=True,
+        cors_allow_localhost_regex=False,
+        frontend_public_url="https://repetcrm.ru",
+        redis_url="",
+        metrics_token="y" * 48,
+    )
+    try:
+        validate_production_settings(cfg)
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "REDIS_URL" in str(exc)
+
+
+def test_production_requires_metrics_token():
+    cfg = Settings(
+        app_env="production",
+        secret_key="x" * 48,
+        cookie_secure=True,
+        cors_allow_localhost_regex=False,
+        frontend_public_url="https://repetcrm.ru",
+        redis_url="redis://:secret@localhost:6379/0",
+        metrics_token="",
+    )
+    try:
+        validate_production_settings(cfg)
+        assert False, "expected RuntimeError"
+    except RuntimeError as exc:
+        assert "METRICS_TOKEN" in str(exc)
 
 
 def test_production_rejects_placeholder_webhook_secret():

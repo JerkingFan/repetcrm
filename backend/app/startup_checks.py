@@ -7,6 +7,8 @@ from app.config import Settings
 _INSECURE_SECRET_KEYS = frozenset(
     {
         "repetcrm-dev-secret-change-in-production",
+        "repetcrm-docker-secret-change-me",
+        "repetcrm-local-dev-only-not-for-production-min-32-chars",
         "change-me-in-production",
         "сгенерируйте-длинную-случайную-строку-минимум-32-символа",
     }
@@ -53,5 +55,32 @@ def validate_production_settings(cfg: Settings) -> None:
             "(or remove the line until payment webhooks are enabled)"
         )
 
+    redis_url = (cfg.redis_url or "").strip()
+    if not redis_url:
+        errors.append(
+            "REDIS_URL is required in production (rate limits, job queue, board bus)"
+        )
+
+    if cfg.metrics_enabled:
+        metrics_token = (cfg.metrics_token or "").strip()
+        if not metrics_token or metrics_token in _INSECURE_SECRET_KEYS or len(metrics_token) < 32:
+            errors.append(
+                "METRICS_TOKEN must be a random string of at least 32 characters "
+                "when METRICS_ENABLED=true (protects GET /metrics)"
+            )
+
     if errors:
         raise RuntimeError("Production configuration errors:\n- " + "\n- ".join(errors))
+
+
+def validate_production_redis_connected(cfg: Settings) -> None:
+    """Fail fast if production requires Redis but ping failed."""
+    if not cfg.is_production:
+        return
+    from app.redis_client import get_redis
+
+    if get_redis() is None:
+        raise RuntimeError(
+            "Redis connection required in production but unavailable "
+            "(check REDIS_URL, password, and that the Redis service is running)"
+        )

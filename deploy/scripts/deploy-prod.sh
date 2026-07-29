@@ -58,6 +58,8 @@ require_env SECRET_KEY
 require_env NEXT_PUBLIC_API_URL
 require_env OPENROUTER_API_KEY
 require_env CORS_ORIGINS
+require_env REDIS_PASSWORD
+require_env METRICS_TOKEN
 
 SECRET_VAL="$(env_val SECRET_KEY)"
 if [[ ${#SECRET_VAL} -lt 32 ]]; then
@@ -100,10 +102,16 @@ fi
 
 DB_URL="$(env_val DATABASE_URL)"
 if [[ -z "$DB_URL" ]]; then
-  ylw "DATABASE_URL не задан — будет SQLite (sqlite:///./data/repetcrm.db)"
+  red "DATABASE_URL обязателен в .env.production (PostgreSQL для production)"
+  exit 1
+fi
+if [[ "$DB_URL" == sqlite* ]]; then
+  red "SQLite не рекомендуется для production — используйте PostgreSQL (см. .env.production.example)"
+  exit 1
 fi
 if [[ "$DB_URL" == postgresql* ]]; then
-  ylw "Внимание: DATABASE_URL=PostgreSQL. Убедитесь, что данные мигрированы из SQLite volume!"
+  require_env POSTGRES_PASSWORD
+  ylw "DATABASE_URL=PostgreSQL — убедитесь, что данные мигрированы из SQLite при необходимости"
 fi
 
 # --- бэкап SQLite из Docker volume перед обновлением ---
@@ -169,7 +177,7 @@ ylw "Статус контейнеров:"
 
 # Fail deploy if core services are not healthy/running
 fail_svc=0
-for svc in backend worker frontend redis; do
+for svc in backend worker frontend redis db; do
   st="$("${COMPOSE[@]}" ps --format json "$svc" 2>/dev/null | python3 -c "
 import sys, json
 raw = sys.stdin.read().strip()

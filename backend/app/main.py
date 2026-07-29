@@ -12,8 +12,10 @@ from app.logging_setup import configure_logging
 from app.metrics import setup_metrics
 from app.sentry_setup import init_sentry
 from app.middleware.api_rate_limit import ApiRateLimitMiddleware
+from app.middleware.request_id import RequestIdMiddleware
+from app.error_handlers import register_exception_handlers
 from app.redis_client import close_redis, get_redis
-from app.routers import auth_router, students, lessons, homework, ai
+from app.routers import auth_router, students, lessons, homework, ai, search
 from app.routers import boards, media, data_transfer, portal, calendar_router, homework_templates
 from app.routers import payments, analytics, prompt_marketplace, parent_portal, booking, payment_receipts
 from app.routers import reschedule
@@ -24,7 +26,7 @@ from app.services.job_store import recover_stale_jobs
 from app.services.arq_client import close_arq_pool
 from app.services.openrouter_client import is_configured as openrouter_configured
 from app.services.local_llm import local_model_available, preload_model_background
-from app.startup_checks import validate_production_settings
+from app.startup_checks import validate_production_settings, validate_production_redis_connected
 
 logger = logging.getLogger("app.main")
 
@@ -56,6 +58,7 @@ async def lifespan(app: FastAPI):
     for warning in db_report.warnings:
         logger.warning(warning)
     get_redis()
+    validate_production_redis_connected(cfg)
     from app.routers.boards import setup_board_bus, shutdown_board_bus
 
     await setup_board_bus()
@@ -134,6 +137,8 @@ if _cfg.cors_allow_localhost_regex:
 
 app.add_middleware(CORSMiddleware, **cors_kwargs)
 app.add_middleware(ApiRateLimitMiddleware)
+app.add_middleware(RequestIdMiddleware)
+register_exception_handlers(app, _cfg)
 setup_metrics(app, _cfg)
 
 app.include_router(auth_router.router)
@@ -154,6 +159,7 @@ app.include_router(parent_portal.router)
 app.include_router(booking.router)
 app.include_router(payment_receipts.router)
 app.include_router(reschedule.router)
+app.include_router(search.router)
 
 
 @app.get("/health")

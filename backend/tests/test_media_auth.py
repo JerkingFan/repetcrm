@@ -50,7 +50,8 @@ def test_docs_hidden_in_production(tmp_path, monkeypatch):
     monkeypatch.setenv("CORS_ALLOW_LOCALHOST_REGEX", "false")
     monkeypatch.setenv("CORS_ORIGINS", "https://repetcrm.ru")
     monkeypatch.setenv("FRONTEND_PUBLIC_URL", "https://repetcrm.ru")
-    monkeypatch.setenv("REDIS_URL", "")
+    monkeypatch.setenv("REDIS_URL", "redis://:testsecret@127.0.0.1:6379/0")
+    monkeypatch.setenv("METRICS_TOKEN", "z" * 48)
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path.as_posix()}")
     monkeypatch.setenv("MEDIA_DIR", str(media_path))
 
@@ -62,13 +63,23 @@ def test_docs_hidden_in_production(tmp_path, monkeypatch):
     import app.database as database_module
     import app.db_migrate as db_migrate_module
     import app.main as main_module
+    import app.redis_client as redis_module
+    import app.startup_checks as startup_checks_module
 
     importlib.reload(config_module)
     importlib.reload(database_module)
     importlib.reload(db_migrate_module)
     database_module.init_db()
+
+    class _FakeRedis:
+        pass
+
+    monkeypatch.setattr(startup_checks_module, "validate_production_redis_connected", lambda _cfg: None)
+    monkeypatch.setattr(redis_module, "get_redis", lambda: _FakeRedis())
+
     importlib.reload(main_module)
 
     with TestClient(main_module.app) as c:
         assert c.get("/docs").status_code == 404
-        assert c.get("/health").status_code == 200
+        health = c.get("/health")
+        assert health.status_code == 200, health.text

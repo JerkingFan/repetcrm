@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, ApiError } from "@/lib/api";
+import { sanitizeHomeworkHtml } from "@/lib/sanitizeHtml";
 import {
   AI_VERDICT_LABEL,
   formatRuDate,
@@ -485,7 +486,7 @@ export default function PortalFocus({
                 >
                   <div
                     dangerouslySetInnerHTML={{
-                      __html: detail.preview_html || detail.homework_text,
+                      __html: sanitizeHomeworkHtml(detail.preview_html || detail.homework_text),
                     }}
                   />
                 </div>

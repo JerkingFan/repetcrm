@@ -9,6 +9,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.config import Settings
+from app.request_context import get_request_id
+
+
+class RequestIdFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = get_request_id() or "-"
+        return True
 
 
 class JsonLogFormatter(logging.Formatter):
@@ -45,6 +52,7 @@ class JsonLogFormatter(logging.Formatter):
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),
+            "request_id": getattr(record, "request_id", "-"),
         }
         for key, val in record.__dict__.items():
             if key not in self._SKIP and key not in payload:
@@ -65,11 +73,14 @@ def configure_logging(cfg: Settings) -> None:
     root.setLevel(level)
 
     handler = logging.StreamHandler(sys.stdout)
+    handler.addFilter(RequestIdFilter())
     if use_json:
         handler.setFormatter(JsonLogFormatter())
     else:
         handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
+            logging.Formatter(
+                "%(asctime)s %(levelname)s [%(name)s] [rid=%(request_id)s] %(message)s"
+            )
         )
     root.addHandler(handler)
 

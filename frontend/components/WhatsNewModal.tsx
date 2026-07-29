@@ -5,6 +5,14 @@ import { useEffect, useState } from "react";
 const WHATS_NEW_VERSION = "2026-05-28-whiteboard-v1";
 const STORAGE_KEY = "repetcrm_whats_new_seen";
 
+function markSeen() {
+  try {
+    localStorage.setItem(STORAGE_KEY, WHATS_NEW_VERSION);
+  } catch {
+    // ignore
+  }
+}
+
 export default function WhatsNewModal() {
   const [open, setOpen] = useState(false);
 
@@ -22,7 +30,13 @@ export default function WhatsNewModal() {
 
   return (
     <div className="fixed inset-0 z-[100]">
-      <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
+      <div
+        className="absolute inset-0 bg-black/40"
+        onClick={() => {
+          markSeen();
+          setOpen(false);
+        }}
+      />
       <div className="absolute inset-0 flex items-center justify-center p-4">
         <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl border border-slate-100 overflow-hidden">
           <div className="p-6 lg:p-7">
@@ -48,11 +62,7 @@ export default function WhatsNewModal() {
               <button
                 className="flex-1 py-3 rounded-xl bg-brand-green text-white font-semibold hover:bg-emerald-600"
                 onClick={() => {
-                  try {
-                    localStorage.setItem(STORAGE_KEY, WHATS_NEW_VERSION);
-                  } catch {
-                    // ignore
-                  }
+                  markSeen();
                   setOpen(false);
                 }}
               >
@@ -60,7 +70,10 @@ export default function WhatsNewModal() {
               </button>
               <button
                 className="flex-1 py-3 rounded-xl border border-slate-200 font-semibold hover:bg-slate-50"
-                onClick={() => setOpen(false)}
+                onClick={() => {
+                  markSeen();
+                  setOpen(false);
+                }}
               >
                 Закрыть
               </button>

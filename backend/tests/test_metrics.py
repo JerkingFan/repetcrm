@@ -7,8 +7,14 @@ from app.metrics import setup_metrics
 
 
 def test_metrics_endpoint_returns_prometheus_format():
-    from app.main import app
+    class DevCfg:
+        metrics_enabled = True
+        is_production = False
+        metrics_token = ""
+        app_env = "development"
 
+    app = FastAPI()
+    setup_metrics(app, DevCfg())  # type: ignore[arg-type]
     client = TestClient(app)
     response = client.get("/metrics")
     assert response.status_code == 200

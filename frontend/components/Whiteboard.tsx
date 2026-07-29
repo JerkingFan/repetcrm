@@ -604,6 +604,18 @@ export default function Whiteboard({
       clearReconnectTimer();
       setStatus("connecting");
 
+      // Guest auth for WS must be via cookie (not query string), so auth tokens
+      // don't leak into WS access logs.
+      if (connectAsGuest && shareToken) {
+        try {
+          const secure = window.location.protocol === "https:";
+          const securePart = secure ? "; Secure" : "";
+          document.cookie = `repetcrm_board_share=${encodeURIComponent(shareToken)}; Path=/${securePart}; SameSite=Lax`;
+        } catch {
+          // ignore
+        }
+      }
+
       socket = new WebSocket(wsUrl);
       wsRef.current = socket;
 
@@ -668,7 +680,7 @@ export default function Whiteboard({
       }
       if (wsRef.current === socket) wsRef.current = null;
     };
-  }, [wsUrl, handleWsMessage]);
+  }, [wsUrl, handleWsMessage, connectAsGuest, shareToken]);
 
   useEffect(() => {
     const t = window.setInterval(() => {

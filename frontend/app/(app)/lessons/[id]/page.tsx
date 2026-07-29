@@ -14,7 +14,9 @@ import LessonFormModal, { LessonFormData } from "@/components/LessonFormModal";
 import { formatLessonTime } from "@/lib/calendar";
 import { api, ApiError, authFetch } from "@/lib/api";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import LoadError from "@/components/LoadError";
 import Alert from "@/components/Alert";
+import { sanitizeHomeworkHtml } from "@/lib/sanitizeHtml";
 import LessonHomeworkForm from "@/components/LessonHomeworkForm";
 import { defaultHomeworkPrefs, HomeworkPrefs } from "@/lib/homeworkPrefs";
 import { formatMoney } from "@/lib/currency";
@@ -67,6 +69,7 @@ export default function LessonDetailPage() {
   const [homeworkView, setHomeworkView] = useState<"latex" | "preview">("preview");
   const [editMode, setEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [generating, setGenerating] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfStatus, setPdfStatus] = useState("");
@@ -106,37 +109,46 @@ export default function LessonDetailPage() {
   }, []);
 
   const load = useCallback(() => {
-    api.lessons.get<Lesson>(lessonId).then((l) => {
-      setLesson(l);
-      if (l.checklist_items?.length) {
-        setRows(
-          l.checklist_items.map((i) => ({
-            topic: i.topic,
-            work_type: i.work_type,
-            difficulty: i.difficulty,
-            understanding: i.understanding,
-          }))
+    setLoading(true);
+    setLoadError("");
+    api.lessons
+      .get<Lesson>(lessonId)
+      .then((l) => {
+        setLesson(l);
+        if (l.checklist_items?.length) {
+          setRows(
+            l.checklist_items.map((i) => ({
+              topic: i.topic,
+              work_type: i.work_type,
+              difficulty: i.difficulty,
+              understanding: i.understanding,
+            }))
+          );
+        }
+        setIsConducted(!!l.is_conducted);
+        setPrefs(
+          l.homework_prefs ? { ...defaultHomeworkPrefs(), ...l.homework_prefs } : defaultHomeworkPrefs()
         );
-      }
-      setIsConducted(!!l.is_conducted);
-      setPrefs(l.homework_prefs ? { ...defaultHomeworkPrefs(), ...l.homework_prefs } : defaultHomeworkPrefs());
-      if (l.homework) {
-        setHomeworkHtml(l.homework.homework_text);
-        setHomeworkId(l.homework.id);
-        setHomeworkDueDate(l.homework.due_date ? l.homework.due_date.slice(0, 10) : "");
-        loadSubmissions(l.homework.id);
-        api.homework
-          .previewHtml(l.homework.id)
-          .then((p) => setHomeworkDisplayHtml(p.html))
-          .catch(() => setHomeworkDisplayHtml(l.homework!.homework_text));
-      } else {
-        setHomeworkId(null);
-        setHomeworkDueDate("");
-        setSubmissions([]);
-        setHomeworkDisplayHtml("");
-      }
-      setLoading(false);
-    });
+        if (l.homework) {
+          setHomeworkHtml(l.homework.homework_text);
+          setHomeworkId(l.homework.id);
+          setHomeworkDueDate(l.homework.due_date ? l.homework.due_date.slice(0, 10) : "");
+          loadSubmissions(l.homework.id);
+          api.homework
+            .previewHtml(l.homework.id)
+            .then((p) => setHomeworkDisplayHtml(p.html))
+            .catch(() => setHomeworkDisplayHtml(l.homework!.homework_text));
+        } else {
+          setHomeworkId(null);
+          setHomeworkDueDate("");
+          setSubmissions([]);
+          setHomeworkDisplayHtml("");
+        }
+      })
+      .catch((e) =>
+        setLoadError(e instanceof ApiError ? e.message : "Не удалось загрузить урок")
+      )
+      .finally(() => setLoading(false));
   }, [lessonId, loadSubmissions]);
 
   useEffect(() => load(), [load]);
@@ -468,7 +480,8 @@ export default function LessonDetailPage() {
     }
   };
 
-  if (loading) return <LoadingSpinner label="Загрузка урока..." />;
+  if (loading && !lesson) return <LoadingSpinner label="Загрузка урока..." />;
+  if (loadError && !lesson) return <LoadError message={loadError} onRetry={load} />;
 
   const editData: LessonFormData | null = lesson
     ? {
@@ -878,7 +891,9 @@ export default function LessonDetailPage() {
           ) : (
             <div
               className="mt-4 p-6 rounded-xl bg-slate-50 prose prose-sm max-w-none lesson-homework"
-              dangerouslySetInnerHTML={{ __html: homeworkDisplayHtml || homeworkHtml }}
+              dangerouslySetInnerHTML={{
+                __html: sanitizeHomeworkHtml(homeworkDisplayHtml || homeworkHtml),
+              }}
             />
           )}
           {submissions.length > 0 && (

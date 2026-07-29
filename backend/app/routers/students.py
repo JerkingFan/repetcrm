@@ -34,6 +34,7 @@ from app.services.boundaries import (
     MODE_SEVERITY,
 )
 from app.services.dashboard_cache import invalidate_dashboard
+from app.services.audit_log import audit_event
 from app.services.student_delete import delete_student_cascade
 from app.services.student_search import apply_student_name_search
 from sqlalchemy.exc import IntegrityError
@@ -314,9 +315,17 @@ def delete_student(student_id: int, user: User = Depends(get_current_user), db: 
     student = db.query(Student).filter(Student.id == student_id, Student.tutor_id == user.id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
+    student_name = student.name
     try:
         delete_student_cascade(db, student)
         db.commit()
+        audit_event(
+            action="student_deleted",
+            entity_type="student",
+            entity_id=student_id,
+            actor_user_id=user.id,
+            meta={"student_name": student_name},
+        )
     except IntegrityError:
         db.rollback()
         raise HTTPException(

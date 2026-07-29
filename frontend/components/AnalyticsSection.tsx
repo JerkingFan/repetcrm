@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { formatMoney } from "@/lib/currency";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import LoadError from "@/components/LoadError";
 
 function BarChart({
   data,
@@ -31,12 +32,34 @@ function BarChart({
 
 export default function AnalyticsSection() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.analytics.overview>> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = () => {
+    setLoading(true);
+    setError("");
+    api
+      .analytics.overview()
+      .then(setData)
+      .catch((e) =>
+        setError(e instanceof ApiError ? e.message : "Не удалось загрузить аналитику")
+      )
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    api.analytics.overview().then(setData);
+    load();
   }, []);
 
-  if (!data) return <LoadingSpinner label="Аналитика..." />;
+  if (loading && !data) return <LoadingSpinner label="Аналитика..." />;
+  if (error && !data) {
+    return (
+      <section className="mt-10">
+        <LoadError message={error} onRetry={load} />
+      </section>
+    );
+  }
+  if (!data) return null;
 
   return (
     <section className="mt-10 space-y-6">

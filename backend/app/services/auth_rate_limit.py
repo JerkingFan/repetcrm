@@ -8,6 +8,7 @@ import threading
 import time
 from collections import defaultdict
 
+from app.config import get_settings
 from app.redis_client import get_redis
 
 logger = logging.getLogger(__name__)
@@ -88,9 +89,15 @@ class RedisSlidingWindowLimiter:
     def _use_redis(self):
         return get_redis()
 
+    def _allow_memory_fallback(self) -> bool:
+        return not get_settings().is_production
+
     def is_blocked(self, key: str) -> bool:
         redis = self._use_redis()
         if redis is None:
+            if not self._allow_memory_fallback():
+                logger.error("redis unavailable in production — rate limit fail-closed key=%s", key)
+                return True
             return self._fallback.is_blocked(key)
 
         now = time.time()
@@ -103,11 +110,15 @@ class RedisSlidingWindowLimiter:
             return int(count) >= self.max_events
         except Exception as exc:
             logger.warning("redis rate limit is_blocked failed: %s", exc)
+            if not self._allow_memory_fallback():
+                return True
             return self._fallback.is_blocked(key)
 
     def record(self, key: str) -> int:
         redis = self._use_redis()
         if redis is None:
+            if not self._allow_memory_fallback():
+                return self.max_events
             return self._fallback.record(key)
 
         now = time.time()
@@ -123,6 +134,8 @@ class RedisSlidingWindowLimiter:
             return int(count)
         except Exception as exc:
             logger.warning("redis rate limit record failed: %s", exc)
+            if not self._allow_memory_fallback():
+                return self.max_events
             return self._fallback.record(key)
 
     def clear(self, key: str) -> None:
@@ -151,6 +164,8 @@ class RedisSlidingWindowLimiter:
             return max(1, int(self.window_sec - (now - oldest_ts)) + 1)
         except Exception as exc:
             logger.warning("redis rate limit retry_after failed: %s", exc)
+            if not self._allow_memory_fallback():
+                return self.window_sec
             return self._fallback.retry_after_sec(key)
 
 

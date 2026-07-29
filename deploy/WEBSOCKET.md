@@ -32,3 +32,23 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 ## Keepalive
 
 Клиент шлёт `{ "type": "ping" }` каждые ~25 с; сервер отвечает `{ "type": "pong" }`. Это удерживает соединение за nginx и NAT.
+
+## Auth (JWT и guest share token)
+
+Рекомендация: не передавать токены в query string, чтобы они не попадали в access logs.
+
+### Tutor (аутентифицированный репетитор)
+
+- Клиентский браузер автоматически пришлёт cookie `repetcrm_access` на handshake.
+- Для non-browser клиентов (script/curl) поддерживается `Authorization: Bearer <jwt>` заголовок.
+
+Поддерживаемый URL: `wss://<domain>/api/boards/ws/{id}` (без `?auth=...`).
+
+### Guest (доступ по ссылке)
+
+- Guest-режим использует cookie `repetcrm_board_share=<share_token>` (ставится клиентом перед подключением).
+- Подключение идёт на URL без query string: `wss://<domain>/api/boards/ws/{id}`.
+
+### Legacy (переходный период)
+
+Сервер продолжает принимать `?auth=...` (JWT) и `?token=...` (guest share token) как fallback, но пишет warning в логах. Планируется удаление.

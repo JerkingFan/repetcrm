@@ -1,7 +1,6 @@
-# Optional override when DATABASE_URL points at the compose Postgres service:
-#   docker compose -f docker-compose.prod.yml -f docker-compose.postgres.yml --profile postgres --env-file .env.production up -d --build
-#
-# Wait for Postgres health before backend/worker start.
+# Optional override when DATABASE_URL points at the compose Postgres service.
+# Postgres is included by default in docker-compose.prod.yml; this file is kept
+# for explicit depends_on wiring if you split stacks.
 
 services:
   backend:

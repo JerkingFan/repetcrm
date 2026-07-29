@@ -9,8 +9,9 @@ import {
   BuildingLibraryIcon,
   PhoneIcon,
 } from "@heroicons/react/24/outline";
-import { api, authFetch, StudentRecord } from "@/lib/api";
+import { api, authFetch, ApiError, StudentRecord } from "@/lib/api";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import LoadError from "@/components/LoadError";
 import StudentBoundariesPanel from "@/components/StudentBoundariesPanel";
 import StudentPortalPanel from "@/components/StudentPortalPanel";
 import ParentPortalPanel from "@/components/ParentPortalPanel";
@@ -29,6 +30,8 @@ export default function StudentDetailPage() {
   const params = useParams();
   const id = Number(params.id);
   const [data, setData] = useState<StudentRecord | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [studentLoading, setStudentLoading] = useState(true);
   const [lessons, setLessons] = useState<LessonHistoryItem[]>([]);
   const [lessonsPage, setLessonsPage] = useState(1);
   const [hasMoreLessons, setHasMoreLessons] = useState(false);
@@ -42,7 +45,15 @@ export default function StudentDetailPage() {
   const [trialFollowup, setTrialFollowup] = useState("");
 
   const loadStudent = useCallback(() => {
-    api.students.get<StudentRecord>(id).then(setData);
+    setStudentLoading(true);
+    setLoadError("");
+    api.students
+      .get<StudentRecord>(id)
+      .then(setData)
+      .catch((e) =>
+        setLoadError(e instanceof ApiError ? e.message : "Не удалось загрузить ученика")
+      )
+      .finally(() => setStudentLoading(false));
   }, [id]);
 
   const loadLessons = useCallback(
@@ -112,7 +123,9 @@ export default function StudentDetailPage() {
     URL.revokeObjectURL(url);
   };
 
-  if (!data) return <LoadingSpinner />;
+  if (studentLoading && !data) return <LoadingSpinner />;
+  if (loadError && !data) return <LoadError message={loadError} onRetry={loadStudent} />;
+  if (!data) return null;
 
   return (
     <div>

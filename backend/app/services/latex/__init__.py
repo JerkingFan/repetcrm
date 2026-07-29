@@ -1,0 +1,1 @@
+"""LaTeX homework conversion package."""

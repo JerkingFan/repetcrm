@@ -73,7 +73,11 @@ export default function NewLessonPage() {
           weeks_ahead: Number(form.weeks_ahead),
         };
       }
-      const result = await api.lessons.create(payload);
+      const result = (await api.lessons.create(payload)) as any;
+      if (result?.offline_queued) {
+        setError("Сохранено офлайн. Занятие будет создано при восстановлении сети.");
+        return;
+      }
       router.push(`/lessons/${result.lesson.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Ошибка");

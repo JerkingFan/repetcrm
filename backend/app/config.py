@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     refresh_cookie_name: str = "repetcrm_refresh"
     access_cookie_name: str = "repetcrm_access"
+    board_share_cookie_name: str = "repetcrm_board_share"
     cookie_secure: bool = False
     database_url: str = "sqlite:///./data/repetcrm.db"
     redis_url: str = ""

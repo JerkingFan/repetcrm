@@ -44,6 +44,7 @@ from app.services.auth_sessions import (
     rotate_session,
 )
 from app.services.dashboard_cache import invalidate_dashboard
+from app.services.audit_log import audit_event
 from app.utils import to_json_list, from_json_list
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -306,6 +307,7 @@ def reset_password(data: ResetPasswordIn, db: Session = Depends(get_db)):
 @router.post("/change-password", response_model=MessageOut)
 def change_password(
     data: ChangePasswordIn,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -313,6 +315,13 @@ def change_password(
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     user.hashed_password = get_password_hash(data.new_password)
     db.commit()
+    audit_event(
+        action="password_changed",
+        entity_type="user",
+        entity_id=user.id,
+        actor_user_id=user.id,
+        meta={"ip": get_client_ip(request)},
+    )
     return MessageOut(message="Password changed.")
 
 

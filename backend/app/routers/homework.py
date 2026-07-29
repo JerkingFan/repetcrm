@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from app.schemas import HomeworkUpdate, HomeworkOut, HomeworkSubmissionOut, HomeworkSubmissionReviewIn
 from app.services.homework_submission_review import review_submission
 from app.services.homework_output import homework_content_to_html
+from app.services.html_utils import sanitize_homework_storage
 from app.services.latex_convert import (
     homework_html_to_python_script,
     latex_to_python_expression,
@@ -154,7 +155,7 @@ def update_homework(
 ):
     hw = get_homework_or_404(homework_id, user, db)
     if data.homework_text is not None:
-        hw.homework_text = data.homework_text
+        hw.homework_text = sanitize_homework_storage(data.homework_text)
         invalidate_homework_pdf(hw.id)
     if "due_date" in data.model_fields_set:
         hw.due_date = data.due_date

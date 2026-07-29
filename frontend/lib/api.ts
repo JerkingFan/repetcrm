@@ -1,5 +1,6 @@
 import { getApiUrl } from "@/lib/apiUrl";
 import { clearLegacyToken } from "@/lib/auth";
+import { enqueueMutation, getOfflineCache, setOfflineCache } from "@/lib/offlineQueue";
 
 export type StudentListItem = {
   id: number;
@@ -63,6 +64,12 @@ export type LessonListItem = {
   meeting_url?: string;
   student_name?: string;
   homework_id?: number | null;
+};
+
+export type GlobalSearchOut = {
+  q: string;
+  students: StudentListItem[];
+  lessons: LessonListItem[];
 };
 
 export type StudentBoundaries = {
@@ -315,31 +322,70 @@ async function request<T>(path: string, options: RequestInit = {}, retried = fal
     ...(options.headers as Record<string, string>),
   };
 
-  const res = await authFetch(`${getApiUrl()}${path}`, {
-    ...options,
-    headers,
-  });
+  const method = (options.method || "GET").toUpperCase();
+  const cacheKey = `repetcrm_offline_cache:${path}`;
 
-  if (res.status === 401 && !retried && !path.startsWith("/auth/login") && !path.startsWith("/auth/register")) {
-    const refreshed = await refreshSession();
-    if (refreshed) {
-      return request<T>(path, options, true);
-    }
-  }
+  const isOffline = () => typeof navigator !== "undefined" && !navigator.onLine;
 
-  if (!res.ok) {
-    let detail = "Request failed";
-    try {
-      const err = await res.json();
-      detail = err.detail || (typeof err.detail === "string" ? err.detail : JSON.stringify(err));
-      if (Array.isArray(err.detail)) detail = err.detail.map((d: { msg: string }) => d.msg).join(", ");
-    } catch {
-      detail = res.statusText;
+  const isQueueableMutation = () => {
+    if (method === "POST" && path === "/students") return true;
+    if (method === "PUT" && /^\/students\/\d+$/.test(path)) return true;
+    if (method === "DELETE" && /^\/students\/\d+$/.test(path)) return true;
+
+    if (method === "POST" && path === "/lessons") return true;
+    return false;
+  };
+
+  try {
+    const res = await authFetch(`${getApiUrl()}${path}`, {
+      ...options,
+      headers,
+    });
+
+    if (res.status === 401 && !retried && !path.startsWith("/auth/login") && !path.startsWith("/auth/register")) {
+      const refreshed = await refreshSession();
+      if (refreshed) {
+        return request<T>(path, options, true);
+      }
     }
-    throw new ApiError(detail, res.status);
+
+    if (!res.ok) {
+      let detail = "Request failed";
+      try {
+        const err = await res.json();
+        detail = err.detail || (typeof err.detail === "string" ? err.detail : JSON.stringify(err));
+        if (Array.isArray(err.detail)) detail = err.detail.map((d: { msg: string }) => d.msg).join(", ");
+      } catch {
+        detail = res.statusText;
+      }
+      throw new ApiError(detail, res.status);
+    }
+    if (res.status === 204) return undefined as T;
+
+    const json = await res.json();
+    if (method === "GET") {
+      setOfflineCache(cacheKey, json);
+    }
+    return json;
+  } catch (err: unknown) {
+    // Offline fallback
+    if (isOffline() && method === "GET") {
+      const cached = getOfflineCache(cacheKey);
+      if (cached !== null && cached !== undefined) return cached as T;
+    }
+
+    // Offline queue for selected mutations
+    if (isOffline() && method !== "GET" && isQueueableMutation()) {
+      enqueueMutation({
+        method,
+        path,
+        body: typeof options.body === "string" ? options.body : undefined,
+      });
+      return { offline_queued: true } as unknown as T;
+    }
+
+    throw err;
   }
-  if (res.status === 204) return undefined as T;
-  return res.json();
 }
 
 export const api = {
@@ -426,6 +472,11 @@ export const api = {
     }>("/dashboard"),
 
   dashboardExtended: () => request<DashboardExtended>("/dashboard/extended"),
+
+  search: {
+    global: (q: string) =>
+      request<GlobalSearchOut>(`/search?q=${encodeURIComponent(q.trim())}`),
+  },
 
   students: {
     list: (params?: { q?: string; page?: number; page_size?: number }) => {
@@ -672,17 +723,15 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(payload),
       }),
-    wsUrl: (id: number, shareToken?: string) => {
+    wsUrl: (id: number, _shareToken?: string) => {
       const base = getApiUrl();
       const httpBase =
         base.startsWith("http://") || base.startsWith("https://")
           ? base
           : `${typeof window !== "undefined" ? window.location.origin : ""}${base}`;
       const wsBase = httpBase.replace(/^http/, "ws").replace(/\/$/, "");
-      const qs = new URLSearchParams();
-      if (shareToken) qs.set("token", shareToken);
-      const q = qs.toString();
-      return `${wsBase}/boards/ws/${id}${q ? `?${q}` : ""}`;
+      // Guest auth must be via cookie to avoid tokens in WS query string/access logs.
+      return `${wsBase}/boards/ws/${id}`;
     },
     uploadAssetUrl: (id: number, shareToken: string) =>
       `${getApiUrl()}/boards/${id}/assets?token=${encodeURIComponent(shareToken)}`,

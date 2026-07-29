@@ -20,3 +20,4 @@ llama-cpp-python>=0.3.4
 matplotlib>=3.8.0
 redis>=5.0.0
 arq>=0.26.1
+bleach>=6.1.0

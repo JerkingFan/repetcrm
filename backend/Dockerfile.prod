@@ -15,7 +15,11 @@ COPY scripts ./scripts
 
 RUN mkdir -p data media
 
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 ENV PYTHONUNBUFFERED=1
+ENV UVICORN_WORKERS=2
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+ENTRYPOINT ["/docker-entrypoint.sh"]

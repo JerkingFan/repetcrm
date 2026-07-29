@@ -9,6 +9,7 @@ import Alert from "@/components/Alert";
 import { formatDayLabel } from "@/lib/calendar";
 import { CURRENCY_SYMBOL } from "@/lib/currency";
 import { toast } from "@/lib/toast";
+import { MEETING_URL_MAX, NOTES_MAX } from "@/lib/fieldLimits";
 import { ClipboardDocumentIcon } from "@heroicons/react/24/outline";
 
 type StudentOption = { id: number; name: string; subject?: string; grade?: string };
@@ -351,6 +352,7 @@ export default function LessonFormModal({
                 onChange={(e) => setForm({ ...form, meeting_url: e.target.value })}
                 placeholder="https://…"
                 className="w-full px-4 py-3 rounded-xl border border-slate-200"
+                maxLength={MEETING_URL_MAX}
               />
               <p className="text-[11px] text-slate-400 mt-1">
                 Ученик увидит кнопку «Войти в урок» в кабинете
@@ -364,6 +366,7 @@ export default function LessonFormModal({
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 rows={2}
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm"
+                maxLength={NOTES_MAX}
               />
             </div>
 

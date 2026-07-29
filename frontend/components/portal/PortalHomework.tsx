@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
+import { sanitizeHomeworkHtml } from "@/lib/sanitizeHtml";
 import {
   AI_VERDICT_LABEL,
   aiVerdictBoxClass,
@@ -204,7 +205,7 @@ export default function PortalHomework({
             >
               <div
                 dangerouslySetInnerHTML={{
-                  __html: detail.preview_html || detail.homework_text,
+                  __html: sanitizeHomeworkHtml(detail.preview_html || detail.homework_text),
                 }}
               />
             </div>

@@ -3,6 +3,7 @@
 import io
 import uuid
 from datetime import date, timedelta
+from unittest.mock import AsyncMock, patch
 
 
 def _register(client, password: str = "SecurePass99"):
@@ -260,7 +261,24 @@ def test_portal_homework_submit(client):
             "prefs": {},
         },
     )
-    gen = client.post(f"/lessons/{lesson_id}/generate-homework")
+
+    with (
+        patch(
+            "app.routers.lessons.generate_homework_ai",
+            new_callable=AsyncMock,
+            return_value=("<p>Test homework</p>", "test", None),
+        ),
+        patch(
+            "app.services.homework_ai.generate_homework_ai",
+            new_callable=AsyncMock,
+            return_value=("<p>Test homework</p>", "test", None),
+        ),
+        patch(
+            "app.routers.portal.schedule_ai_review",
+            new_callable=lambda: (lambda _submission_id: None),
+        ),
+    ):
+        gen = client.post(f"/lessons/{lesson_id}/generate-homework")
     assert gen.status_code == 200, gen.text
     hw_id = gen.json()["id"]
 
@@ -273,6 +291,7 @@ def test_portal_homework_submit(client):
     sub = client.post(f"/portal/homework/{hw_id}/submit", files=files, data={"comment": "Done"})
     assert sub.status_code == 200
     assert sub.json()["original_filename"] == "answer.pdf"
+    assert sub.json()["ai_review_status"] == "skipped"
 
 
 def test_portal_customize_and_daily_challenge(client):
