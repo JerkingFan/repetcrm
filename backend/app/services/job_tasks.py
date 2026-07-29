@@ -142,6 +142,8 @@ async def run_generate_homework(lesson_id: int, tutor_id: int) -> dict:
                 else 900.0,
             )
         except Exception as e:
+            if cfg.homework_ai_provider.strip().lower() == "openrouter":
+                raise
             html = generate_smart_homework_latex(
                 lesson.student.name,
                 lesson.student.subject,

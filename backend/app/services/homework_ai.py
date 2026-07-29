@@ -142,10 +142,15 @@ async def generate_homework_ai(
         bool(cfg.openrouter_api_key.strip()),
     )
 
-    if provider_mode == "openrouter" and not openrouter_configured():
-        raise OpenRouterError(
-            "В backend/.env задан HOMEWORK_AI_PROVIDER=openrouter, но OPENROUTER_API_KEY пустой"
+    if provider_mode == "openrouter":
+        if not openrouter_configured():
+            raise OpenRouterError(
+                "В backend/.env задан HOMEWORK_AI_PROVIDER=openrouter, но OPENROUTER_API_KEY пустой"
+            )
+        content = await generate_homework_with_openrouter(
+            student_name, subject, checklist, grade, prefs
         )
+        return content, "openrouter", f"Модель {cfg.openrouter_model}"
 
     # Режим smart — сразу стабильные задачи, без OpenRouter
     if provider_mode == "smart":

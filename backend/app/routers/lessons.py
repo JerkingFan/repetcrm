@@ -510,15 +510,12 @@ async def generate_lesson_homework(
         )
     except (OllamaError, OpenRouterError) as e:
         logger.warning(
-            "homework AI unavailable lesson_id=%s: %s",
+            "homework AI failed lesson_id=%s: %s",
             lesson_id,
             e,
             extra={"lesson_id": lesson_id},
         )
-        raise HTTPException(
-            status_code=503,
-            detail="Сервис генерации ДЗ временно недоступен. Попробуйте позже.",
-        )
+        raise HTTPException(status_code=503, detail=str(e))
     if lesson.homework:
         lesson.homework.homework_text = html
         hw = lesson.homework
