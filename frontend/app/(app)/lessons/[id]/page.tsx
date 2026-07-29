@@ -299,7 +299,7 @@ export default function LessonDetailPage() {
       window.localStorage.setItem(key, started.job_id);
       setJobId(started.job_id);
       setJobStatus(started.status === "running" ? "running" : "queued");
-      setJobHint("Генерируем домашнее задание в фоне — можно закрыть вкладку, результат сохранится.");
+      setJobHint("Генерируем домашнее задание в фоне — обычно 30–90 сек через OpenRouter.");
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Ошибка генерации";
       setError(msg);
@@ -738,7 +738,10 @@ export default function LessonDetailPage() {
         )}
         {jobId && (jobStatus === "queued" || jobStatus === "running") && (
           <p className="mt-3 text-sm text-slate-500">
-            {jobStatus === "queued" ? "В очереди…" : "Генерируем…"} {jobHint}
+            {jobStatus === "queued"
+              ? "В очереди… Если больше 20 сек — проверьте worker (docker compose up worker) или перезапустите backend."
+              : "Генерируем через AI…"}{" "}
+            {jobHint}
           </p>
         )}
 

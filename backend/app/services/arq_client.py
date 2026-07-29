@@ -4,11 +4,39 @@ from __future__ import annotations
 
 import logging
 
+from arq.constants import default_queue_name, health_check_key_suffix
+
 from app.config import get_settings
+from app.redis_client import get_redis
 
 logger = logging.getLogger(__name__)
 
 _pool = None
+_ARQ_HEALTH_KEY = default_queue_name + health_check_key_suffix
+
+
+def is_arq_worker_online() -> bool:
+    """True, если ARQ worker недавно писал health-check в Redis."""
+    if not get_settings().redis_url.strip():
+        return False
+    redis = get_redis()
+    if redis is None:
+        return False
+    try:
+        return bool(redis.get(_ARQ_HEALTH_KEY))
+    except Exception as exc:
+        logger.warning("ARQ health check failed: %s", exc)
+        return False
+
+
+async def should_use_arq_worker() -> bool:
+    """Redis настроен, pool доступен и worker жив — иначе job в процессе API."""
+    if not get_settings().redis_url.strip():
+        return False
+    pool = await get_arq_pool()
+    if pool is None:
+        return False
+    return is_arq_worker_online()
 
 
 async def get_arq_pool():
@@ -43,6 +71,8 @@ async def close_arq_pool() -> None:
 
 
 async def enqueue_arq_task(task_name: str, job_id: str, *args) -> bool:
+    if not await should_use_arq_worker():
+        return False
     pool = await get_arq_pool()
     if pool is None:
         return False

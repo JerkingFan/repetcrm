@@ -169,6 +169,8 @@ def health():
     from app.services.board_bus import board_bus
     from app.config import get_settings
 
+    from app.services.arq_client import is_arq_worker_online
+
     cfg = get_settings()
     redis_url = (cfg.redis_url or "").strip()
     redis = get_redis()
@@ -178,18 +180,22 @@ def health():
     if not redis_url:
         redis_status = "disabled"
         worker_status = "in-process"
+        worker_online = None
     elif redis is not None:
         redis_status = "connected"
-        worker_status = "arq"
+        worker_online = is_arq_worker_online()
+        worker_status = "arq-online" if worker_online else "arq-offline"
     else:
         redis_status = "unavailable"
         worker_status = "degraded"
+        worker_online = False
 
     healthy = db_ok and redis_status != "unavailable"
     body = {
         "status": "ok" if healthy else "degraded",
         "redis": redis_status,
         "worker": worker_status,
+        "worker_online": worker_online,
         "board_bus": "redis" if board_bus.enabled else "local",
         "database": db_health,
     }

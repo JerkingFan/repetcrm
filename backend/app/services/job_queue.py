@@ -7,7 +7,7 @@ import time
 
 from app.config import get_settings
 from app.services import job_store
-from app.services.arq_client import enqueue_arq_task
+from app.services.arq_client import enqueue_arq_task, is_arq_worker_online
 from app.services.job_types import Job
 
 logger = logging.getLogger(__name__)
@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 # ARQ registers tasks by function name
 ARQ_TASK_GENERATE_HOMEWORK = "generate_homework_task"
 ARQ_TASK_BUILD_PDF = "build_pdf_task"
+QUEUE_STUCK_MS = 20_000
+WORKER_OFFLINE_ERROR = (
+    "Фоновый worker не отвечает. Запустите: arq app.worker_settings.WorkerSettings "
+    "(или docker compose up worker). Либо уберите REDIS_URL для режима без worker."
+)
 
 
 class JobQueue:
@@ -30,6 +35,8 @@ class JobQueue:
         self._active_by_key: dict[tuple[int, str], str] = {}
         self._semaphores: dict[int, asyncio.Semaphore] = {}
         self._ai_sem: asyncio.Semaphore | None = None
+        self._fallback_runners: dict[str, tuple[tuple[int, str], object]] = {}
+        self._reviving: set[str] = set()
 
     def _now_ms(self) -> int:
         return int(time.time() * 1000)
@@ -83,6 +90,28 @@ class JobQueue:
                 owner_user_id, key_type, key_value = self._parse_active_key(key)
                 job_store.clear_active(owner_user_id, key_type, key_value)
 
+    async def _maybe_revive_stuck_job(self, job: Job) -> None:
+        if job.status != "queued" or job.id in self._reviving:
+            return
+        if self._now_ms() - job.created_at_ms < QUEUE_STUCK_MS:
+            return
+        if is_arq_worker_online():
+            return
+
+        payload = self._fallback_runners.get(job.id)
+        if not payload:
+            job.status = "error"
+            job.error = WORKER_OFFLINE_ERROR
+            job.updated_at_ms = self._now_ms()
+            self._persist(job)
+            self._clear_active_for_job(job)
+            return
+
+        key, runner = payload
+        self._reviving.add(job.id)
+        logger.warning("job %s stuck in queue without worker — running in-process", job.id)
+        asyncio.create_task(self._run_in_process(job, key, runner))
+
     async def get(self, job_id: str) -> Job | None:
         async with self._lock:
             self._prune_finished()
@@ -97,6 +126,9 @@ class JobQueue:
             if job.status == "error" and job.error and "время ожидания" in job.error:
                 self._clear_active_for_job(job)
             return job
+
+        await self._maybe_revive_stuck_job(job)
+        return job
 
     async def _set(self, job: Job) -> None:
         async with self._lock:
@@ -149,6 +181,8 @@ class JobQueue:
                     job.updated_at_ms = self._now_ms()
                     await self._set(job)
         finally:
+            self._fallback_runners.pop(job.id, None)
+            self._reviving.discard(job.id)
             if ai_sem is not None:
                 ai_sem.release()
             async with self._lock:
@@ -199,7 +233,7 @@ class JobQueue:
                     return existing
                 peer_id = job_store.get_active(owner_user_id, key_type, key_value)
                 if peer_id:
-                    peer = await self._get(peer_id)
+                    peer = job_store.load_job(peer_id) or await self.get(peer_id)
                     if peer is None:
                         peer = job_store.load_job(peer_id)
                         if peer:
@@ -211,7 +245,7 @@ class JobQueue:
                 if not job_store.set_active(owner_user_id, key_type, key_value, job_id):
                     peer_id = job_store.get_active(owner_user_id, key_type, key_value)
                     if peer_id:
-                        peer = job_store.load_job(peer_id) or await self._get(peer_id)
+                        peer = job_store.load_job(peer_id) or await self.get(peer_id)
                         if peer:
                             self._jobs[peer.id] = peer
                             return peer
@@ -219,12 +253,13 @@ class JobQueue:
                 self._active_by_key[key] = job_id
             self._persist(job)
 
+        self._fallback_runners[job_id] = (key, inprocess_runner)
         dispatched = await enqueue_arq_task(arq_task, job_id, *arq_args)
         if dispatched:
             logger.info("job %s dispatched to ARQ task=%s", job_id, arq_task)
             return job
 
-        logger.info("job %s running in-process (no ARQ)", job_id)
+        logger.info("job %s running in-process (ARQ/worker unavailable)", job_id)
         asyncio.create_task(self._run_in_process(job, key, inprocess_runner))
         return job
 

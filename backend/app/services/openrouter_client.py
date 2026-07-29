@@ -78,7 +78,7 @@ async def _call_openrouter(messages: list[dict]) -> str:
         "model": cfg.openrouter_model,
         "messages": messages,
         "temperature": 0.25,
-        "max_tokens": cfg.openrouter_max_tokens,
+        "max_tokens": min(2800, cfg.openrouter_max_tokens),
     }
     url = f"{cfg.openrouter_base_url.rstrip('/')}/chat/completions"
     max_retries = max(1, cfg.openrouter_max_retries)

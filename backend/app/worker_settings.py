@@ -43,4 +43,5 @@ class WorkerSettings:
     max_jobs = 8
     job_timeout = 600
     keep_result = 3600
+    health_check_interval = 30
     redis_settings = _worker_redis_settings()
