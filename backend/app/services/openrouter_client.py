@@ -10,6 +10,9 @@ import httpx
 
 from app.config import get_settings, openrouter_key_hint
 from app.services.circuit_breaker import CircuitBreaker, CircuitOpenError
+from app.services.homework_output import coerce_openrouter_latex
+from app.services.homework_prefs import parse_homework_prefs
+from app.services.prompts import build_homework_prompt, build_homework_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -260,9 +263,48 @@ async def generate_homework_with_openrouter(
     grade: str = "",
     homework_prefs: dict | None = None,
 ) -> str:
-    """Прямая генерация ДЗ — делегирует в openrouter_homework."""
-    from app.services.openrouter_homework import generate_homework_direct
+    if not is_configured():
+        raise OpenRouterError("OPENROUTER_API_KEY не задан в backend/.env")
 
-    return await generate_homework_direct(
-        student_name, subject, checklist, grade, homework_prefs
+    cfg = get_settings()
+    prefs = parse_homework_prefs(homework_prefs)
+    system_prompt = build_homework_system_prompt(prefs)
+    user_prompt = build_homework_prompt(
+        student_name, subject, checklist, grade, prefs
     )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    try:
+        raw = await _call_openrouter(messages)
+        logger.info(
+            "OpenRouter: %s chars, model %s",
+            len(raw),
+            cfg.openrouter_model,
+        )
+        try:
+            return coerce_openrouter_latex(raw, homework_prefs=prefs)
+        except ValueError as first_err:
+            logger.info("OpenRouter pass1 coerce: %s", first_err)
+
+        fix_user = (
+            "Ответ не в формате LaTeX. Выведи ЗАНОВО ТОЛЬКО LaTeX code: "
+            "с \\documentclass до \\end{document}. Без markdown. "
+            "Каждый \\begin{task} — полное условие с формулами $...$."
+        )
+        messages.append({"role": "assistant", "content": raw[:4000]})
+        messages.append({"role": "user", "content": fix_user})
+        raw2 = await _call_openrouter(messages)
+        logger.info("OpenRouter retry: %s chars", len(raw2))
+        return coerce_openrouter_latex(raw2, homework_prefs=prefs)
+    except OpenRouterError:
+        raise
+    except httpx.TimeoutException as e:
+        raise OpenRouterError("Таймаут OpenRouter — попробуйте ещё раз") from e
+    except httpx.HTTPStatusError as e:
+        detail = e.response.text[:300] if e.response else str(e)
+        raise OpenRouterError(f"OpenRouter HTTP {e.response.status_code}: {detail}") from e
+    except httpx.HTTPError as e:
+        raise OpenRouterError(f"Ошибка сети OpenRouter: {e}") from e
