@@ -1,6 +1,9 @@
+import logging
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 _ENV_FILE = _BACKEND_DIR / ".env"
@@ -218,8 +221,44 @@ class Settings(BaseSettings):
         return f"{self.ollama_base_url.rstrip('/')}/api/tags"
 
 
+_ENV_DUPLICATE_WARNED = False
+
+
+def _warn_duplicate_env_keys() -> None:
+    """В .env второй OPENROUTER_API_KEY затирает первый — частая причина «неверный ключ»."""
+    global _ENV_DUPLICATE_WARNED
+    if _ENV_DUPLICATE_WARNED or not _ENV_FILE.is_file():
+        return
+    _ENV_DUPLICATE_WARNED = True
+    seen: dict[str, int] = {}
+    for lineno, line in enumerate(_ENV_FILE.read_text(encoding="utf-8").splitlines(), 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key = stripped.split("=", 1)[0].strip()
+        if key in seen:
+            logger.warning(
+                "backend/.env: дубликат %s (строки %s и %s) — используется последнее значение",
+                key,
+                seen[key],
+                lineno,
+            )
+        seen[key] = lineno
+
+
+def openrouter_key_hint(api_key: str) -> str:
+    """Короткий отпечаток ключа для логов (без утечки секрета)."""
+    key = (api_key or "").strip()
+    if not key:
+        return "ключ не задан"
+    if len(key) <= 10:
+        return "ключ задан (короткий)"
+    return f"ключ …{key[-6:]}"
+
+
 def get_settings() -> Settings:
     """Перечитывает backend/.env; файл важнее переменных окружения Windows."""
+    _warn_duplicate_env_keys()
     base = Settings()
     if not _ENV_FILE.is_file():
         return base

@@ -6,7 +6,7 @@ import random
 
 import httpx
 
-from app.config import get_settings
+from app.config import get_settings, openrouter_key_hint
 from app.services.circuit_breaker import CircuitBreaker, CircuitOpenError
 from app.services.homework_output import coerce_openrouter_latex
 from app.services.homework_prefs import parse_homework_prefs
@@ -89,7 +89,11 @@ async def _call_openrouter(messages: list[dict]) -> str:
             async with httpx.AsyncClient(timeout=cfg.openrouter_timeout_sec) as client:
                 response = await client.post(url, headers=_headers(), json=payload)
                 if response.status_code == 401:
-                    raise OpenRouterError("Неверный OPENROUTER_API_KEY")
+                    raise OpenRouterError(
+                        "Неверный OPENROUTER_API_KEY "
+                        f"({openrouter_key_hint(cfg.openrouter_api_key)}). "
+                        "Проверьте backend/.env: один ключ, без дубликатов, перезапустите API и worker"
+                    )
                 if response.status_code == 402:
                     raise OpenRouterError("Недостаточно средств на OpenRouter")
                 if response.status_code in (429, 502, 503, 504):
@@ -188,7 +192,11 @@ async def call_openrouter_vision(
             async with httpx.AsyncClient(timeout=cfg.openrouter_timeout_sec) as client:
                 response = await client.post(url, headers=_headers(), json=payload)
                 if response.status_code == 401:
-                    raise OpenRouterError("Неверный OPENROUTER_API_KEY")
+                    raise OpenRouterError(
+                        "Неверный OPENROUTER_API_KEY "
+                        f"({openrouter_key_hint(cfg.openrouter_api_key)}). "
+                        "Проверьте backend/.env: один ключ, без дубликатов, перезапустите API и worker"
+                    )
                 if response.status_code == 402:
                     raise OpenRouterError("Недостаточно средств на OpenRouter")
                 if response.status_code in (429, 502, 503, 504):
