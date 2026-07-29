@@ -9,10 +9,175 @@ def _escape_latex_text(s: str) -> str:
     return s
 
 
-def _tasks_for_topic(topic: str, understanding: int, difficulty: str) -> list[str]:
-    t = topic.lower()
+def _difficulty_flags(understanding: int, difficulty: str) -> tuple[bool, bool]:
     hard = difficulty == "advanced" or understanding >= 4
     weak = understanding <= 2
+    return weak, hard
+
+
+def _log_tasks_plain(weak: bool, hard: bool) -> list[str]:
+    if weak:
+        return [
+            "Вычисли: log₂(8), log₅(25), log₁₀(100).",
+            "Примени свойство: log₃(27) + log₃(3).",
+            "Найди ОДЗ функции y = log₂(x − 3).",
+            "Реши: log₅(x) = 2.",
+        ]
+    if hard:
+        return [
+            "Реши: log₂(x+1) + log₂(x−1) = 3.",
+            "Реши: 2·log₃(x) − log₃(9) = 1.",
+            "Найди ОДЗ: y = log₅(4−x) / √(x+2).",
+            "Сравни без вычисления: log₂(7) и log₂(5).",
+        ]
+    return [
+        "Вычисли: log₃(81) и log₂(1/8).",
+        "Упрости: log₄(2) + log₄(8).",
+        "Найди ОДЗ: f(x) = log₀,₅(2x − 6).",
+        "Реши: log₇(2x − 1) = 1.",
+    ]
+
+
+def _func_tasks_plain(weak: bool, hard: bool) -> list[str]:
+    if weak:
+        return [
+            "Найди ОДЗ функции f(x) = 1/(x−2).",
+            "Найди нули функции f(x) = x² − 9.",
+            "Найди ОДЗ: g(x) = √(x+4).",
+            "Найди нули: f(x) = 2x − 6.",
+        ]
+    if hard:
+        return [
+            "Найди ОДЗ и нули: f(x) = (x+1)/(x² − 4).",
+            "При каких x функция f(x) = √(5−2x) определена?",
+            "Найди нули и положительные значения: f(x) = x² − 5x + 6.",
+            "Найди ОДЗ: f(x) = log₂(x−1) + 1/√(3−x).",
+        ]
+    return [
+        "Найди ОДЗ: f(x) = 3/(x+5).",
+        "Найди нули: f(x) = x² − 4x.",
+        "Найди ОДЗ: f(x) = √(2x − 8).",
+        "При каких x f(x) = 0, если f(x) = x² − 3x − 10?",
+    ]
+
+
+def _log_tasks_latex(weak: bool, hard: bool) -> list[str]:
+    if weak:
+        return [
+            r"Вычислите: $\log_2 8$, $\log_5 25$, $\log_{10} 100$.",
+            r"Примените свойство: $\log_3 27 + \log_3 3$.",
+            r"Найдите ОДЗ: $y = \log_2 (x - 3)$.",
+            r"Решите: $\log_5 x = 2$.",
+        ]
+    if hard:
+        return [
+            r"Решите: $\log_2(x+1) + \log_2(x-1) = 3$.",
+            r"Решите: $2\log_3 x - \log_3 9 = 1$.",
+            r"Найдите ОДЗ: $y = \dfrac{\log_5(4-x)}{\sqrt{x+2}}$.",
+            r"Сравните без вычисления: $\log_2 7$ и $\log_2 5$.",
+        ]
+    return [
+        r"Вычислите: $\log_3 81$ и $\log_2 \frac{1}{8}$.",
+        r"Упростите: $\log_4 2 + \log_4 8$.",
+        r"Найдите ОДЗ: $f(x) = \log_{0.5}(2x - 6)$.",
+        r"Решите: $\log_7(2x - 1) = 1$.",
+    ]
+
+
+def _func_tasks_latex(weak: bool, hard: bool) -> list[str]:
+    if weak:
+        return [
+            r"Найдите ОДЗ функции $f(x) = \dfrac{1}{x-2}$.",
+            r"Найдите нули функции $f(x) = x^2 - 9$.",
+            r"Найдите ОДЗ: $g(x) = \sqrt{x+4}$.",
+            r"Найдите нули: $f(x) = 2x - 6$.",
+        ]
+    if hard:
+        return [
+            r"Найдите ОДЗ и нули: $f(x) = \dfrac{x+1}{x^2 - 4}$.",
+            r"При каких $x$ функция $f(x) = \sqrt{5-2x}$ определена?",
+            r"Найдите нули и положительные значения: $f(x) = x^2 - 5x + 6$.",
+            r"Найдите ОДЗ: $f(x) = \log_2(x-1) + \dfrac{1}{\sqrt{3-x}}$.",
+        ]
+    return [
+        r"Найдите ОДЗ: $f(x) = \dfrac{3}{x+5}$.",
+        r"Найдите нули: $f(x) = x^2 - 4x$.",
+        r"Найдите ОДЗ: $f(x) = \sqrt{2x - 8}$.",
+        r"При каких $x$ $f(x) = 0$, если $f(x) = x^2 - 3x - 10$?",
+    ]
+
+
+def _generic_tasks_plain(weak: bool, hard: bool) -> list[str]:
+    if weak:
+        return [
+            "Вычисли: 48 : 6 + 7.",
+            "Реши: 2x + 5 = 17.",
+            "Упрости: 3(x − 2) + 2x.",
+            "Задача: сумма двух чисел 25, одно на 7 больше другого. Найди числа.",
+        ]
+    if hard:
+        return [
+            "Реши: 3x² − 12 = 0.",
+            "Задача: периметр прямоугольника 34 см, длина на 5 см больше ширины. Найди стороны.",
+            "Упрости: (2x − 1)² − (x + 3)(x − 3).",
+            "При каких x выражение 5/(x−1) имеет смысл?",
+        ]
+    return [
+        "Реши: 4x − 9 = 15.",
+        "Вычисли: 3/5 + 1/10.",
+        "Найди 20% от 150.",
+        "Задача: в 3 одинаковых коробках 24 карандаша. Сколько в 5 таких коробках?",
+    ]
+
+
+def _generic_tasks_latex(weak: bool, hard: bool) -> list[str]:
+    if weak:
+        return [
+            r"Вычислите: $48 : 6 + 7$.",
+            r"Решите: $2x + 5 = 17$.",
+            r"Упростите: $3(x - 2) + 2x$.",
+            r"Сумма двух чисел $25$, одно на $7$ больше другого. Найдите числа.",
+        ]
+    if hard:
+        return [
+            r"Решите: $3x^2 - 12 = 0$.",
+            r"Периметр прямоугольника $34$ см, длина на $5$ см больше ширины. Найдите стороны.",
+            r"Упростите: $(2x - 1)^2 - (x + 3)(x - 3)$.",
+            r"При каких $x$ выражение $\dfrac{5}{x-1}$ имеет смысл?",
+        ]
+    return [
+        r"Решите: $4x - 9 = 15$.",
+        r"Вычислите: $\frac{3}{5} + \frac{1}{10}$.",
+        r"Найдите $20\%$ от $150$.",
+        r"В $3$ одинаковых коробках $24$ карандаша. Сколько в $5$ таких коробках?",
+    ]
+
+
+def _topic_has_log(t: str) -> bool:
+    return "логарифм" in t or "логоритм" in t
+
+
+def _topic_has_functions(t: str) -> bool:
+    return (
+        "функци" in t
+        or "одз" in t
+        or "нули" in t
+        or "область определения" in t
+        or "область опред" in t
+    )
+
+
+def _tasks_for_topic(topic: str, understanding: int, difficulty: str) -> list[str]:
+    t = topic.lower()
+    weak, hard = _difficulty_flags(understanding, difficulty)
+
+    collected: list[str] = []
+    if _topic_has_functions(t):
+        collected.extend(_func_tasks_plain(weak, hard))
+    if _topic_has_log(t):
+        collected.extend(_log_tasks_plain(weak, hard))
+    if collected:
+        return collected
 
     if "дроб" in t:
         if weak:
@@ -49,31 +214,21 @@ def _tasks_for_topic(topic: str, understanding: int, difficulty: str) -> list[st
             "Задача: сумма двух чисел 48, одно в 3 раза больше другого. Найди числа.",
         ]
 
-    # Универсальные задания по теме
-    if weak:
-        return [
-            f"Кратко запиши определения и формулы по теме «{topic}» (5–7 пунктов).",
-            f"Реши 3 простых примера по теме «{topic}» с полным решением.",
-            f"Выпиши 2 типичные ошибки по теме «{topic}» и исправь их на примерах.",
-        ]
-    if hard:
-        return [
-            f"Реши 2 задачи повышенной сложности по теме «{topic}».",
-            f"Объясни решение одной задачи письменно (5–6 предложений).",
-            f"Придумай свою задачу по теме «{topic}» и реши её.",
-        ]
-    return [
-        f"Повтори правила по теме «{topic}» и реши 4 стандартных примера.",
-        f"Выполни 1 задачу из учебника/конспекта по теме «{topic}».",
-        f"Сформулируй 3 вопроса по теме «{topic}» для самопроверки.",
-    ]
+    return _generic_tasks_plain(weak, hard)
 
 
 def _tasks_latex_for_topic(topic: str, understanding: int, difficulty: str) -> list[str]:
     """Задания с формулами в $...$ для LaTeX-документа."""
     t = topic.lower()
-    hard = difficulty == "advanced" or understanding >= 4
-    weak = understanding <= 2
+    weak, hard = _difficulty_flags(understanding, difficulty)
+
+    collected: list[str] = []
+    if _topic_has_functions(t):
+        collected.extend(_func_tasks_latex(weak, hard))
+    if _topic_has_log(t):
+        collected.extend(_log_tasks_latex(weak, hard))
+    if collected:
+        return collected
 
     if "дроб" in t:
         if weak:
@@ -189,8 +344,7 @@ def _tasks_latex_for_topic(topic: str, understanding: int, difficulty: str) -> l
             r"Решите: $\sqrt{x}+\sqrt{x}=4$.",
         ]
 
-    plain = _tasks_for_topic(topic, understanding, difficulty)
-    return [t.replace("«", '"').replace("»", '"') for t in plain[:4]]
+    return _generic_tasks_latex(weak, hard)
 
 
 def _max_tasks_per_topic(volume: str) -> int:

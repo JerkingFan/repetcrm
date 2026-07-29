@@ -108,7 +108,12 @@ def _lesson_checklist(lesson: Lesson) -> list[dict]:
 
 async def run_generate_homework(lesson_id: int, tutor_id: int) -> dict:
     cfg = get_settings()
-    openrouter_cap_sec = 60.0
+    # OpenRouter может делать 2 запроса (retry) по openrouter_timeout_sec каждый
+    openrouter_cap_sec = (
+        max(cfg.openrouter_timeout_sec * 2.5 + 15.0, 180.0)
+        if cfg.homework_ai_provider in ("openrouter", "auto")
+        else 900.0
+    )
 
     db = SessionLocal()
     try:
