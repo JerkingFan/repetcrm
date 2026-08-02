@@ -161,6 +161,7 @@ LATEX_ONLY_OUTPUT_RULES = """
 • Первый символ ответа: обратный слэш в \\documentclass (не пробел, не «Вот», не #, не ```).
 • Последняя строка: \\end{document} — после неё НИЧЕГО (ни пояснений, ни «Удачи», ни markdown).
 • ЗАПРЕЩЕНО: ```latex```, ``` , markdown (#, **), HTML, JSON, «конечно», «вот задание», списки вне LaTeX.
+• ЗАПРЕЩЕНО: \\title, \\author, \\date, \\maketitle и любые шапки «Ученик», «Домашнее задание по …».
 • ЗАПРЕЩЕНО: \\boxed, решения, ответы, «Правильный ответ», пошаговые решения (только условия задач).
 • Каждая задача — отдельный \\begin{task} ... \\end{task} с ПОЛНЫМ условием на русском и формулами в $...$.
 • Внутри task: без \\textbf, без «Задача 1», без заголовков типа «Упражнения на отработку» — только математическое условие.
@@ -173,8 +174,9 @@ LATEX_ONLY_OUTPUT_RULES = """
 def _latex_structure_rules(p: dict[str, Any]) -> str:
     parts = [
         LATEX_ONLY_OUTPUT_RULES,
-        "Структура: \\documentclass{article} → преамбула → \\begin{document} → \\maketitle → "
-        "\\section{Тема} → несколько \\begin{task}...\\end{task} → \\end{document}.",
+        "Структура: \\documentclass{article} → преамбула → \\begin{document} → "
+        "\\section{Тема} → несколько \\begin{task}...\\end{task} → \\end{document}. "
+        "Без \\title, \\author, \\date, \\maketitle — сразу секции с задачами.",
         "Все математические выражения только в $...$ (дроби: $\\frac{a}{b}$, тригонометрия: $\\sin x$).",
     ]
     if p.get("include_cheatsheet"):
@@ -260,9 +262,6 @@ def build_user_prompt_for_homework(
 \\geometry{{top=2cm, bottom=2cm, left=2.5cm, right=2.5cm}}
 \\newenvironment{{task}}{{\\par\\noindent}}{{\\par\\medskip}}
 \\begin{{document}}
-\\title{{Домашнее задание по {subject}}}
-\\date{{\\today}}
-\\maketitle
 % \\section{{Название темы}} + задачи
 \\end{{document}}
 

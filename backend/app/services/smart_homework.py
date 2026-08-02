@@ -363,11 +363,10 @@ def generate_smart_homework_latex(
 
     from app.services.homework_prefs import apply_prefs_to_checklist
 
+    del student_name, subject, grade  # без шапки в документе
     prefs = parse_homework_prefs(homework_prefs)
     checklist = apply_prefs_to_checklist(checklist, prefs, force=True)
     max_tasks = _max_tasks_per_topic(prefs.get("volume", "standard"))
-    subj = _escape_latex_text(subject)
-    name = _escape_latex_text(student_name)
     lines = [
         r"\documentclass[a4paper,12pt]{article}",
         r"\usepackage[T1,T2A]{fontenc}",
@@ -378,10 +377,6 @@ def generate_smart_homework_latex(
         r"\geometry{top=2cm, bottom=2cm, left=2.5cm, right=2.5cm}",
         r"\newenvironment{task}{\par\noindent}{\par\medskip}",
         r"\begin{document}",
-        f"\\title{{Домашнее задание по {subj}}}",
-        f"\\author{{Ученик: {name}}}",
-        r"\date{\today}",
-        r"\maketitle",
     ]
     for item in checklist:
         topic = _escape_latex_text(item["topic"])
@@ -406,12 +401,9 @@ def generate_smart_homework(
     checklist: list[dict],
     grade: str = "",
 ) -> str:
+    del student_name, subject, grade
     parts = [
         "<h2>Домашнее задание</h2>",
-        f"<p><strong>Ученик:</strong> {escape(student_name)} · "
-        f"<strong>Предмет:</strong> {escape(subject)}"
-        + (f" · <strong>Класс:</strong> {escape(grade)}" if grade else "")
-        + "</p>",
     ]
     for i, item in enumerate(checklist, 1):
         topic = item["topic"]

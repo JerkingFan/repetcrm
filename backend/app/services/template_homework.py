@@ -9,12 +9,9 @@ def generate_template_homework(
     checklist: list[dict],
     grade: str = "",
 ) -> str:
+    del student_name, subject, grade
     parts = [
         "<h2>Домашнее задание</h2>",
-        f"<p><strong>Ученик:</strong> {escape(student_name)} · "
-        f"<strong>Предмет:</strong> {escape(subject)}"
-        + (f" · <strong>Класс:</strong> {escape(grade)}" if grade else "")
-        + "</p>",
         "<p><em>Собрано автоматически по чек-листу урока. "
         "Для текста от нейросети: Настройки → AI или установите Ollama.</em></p>",
     ]

@@ -194,8 +194,6 @@ async def run_build_pdf(homework_id: int, tutor_id: int) -> dict:
             raise ValueError("Домашнее задание пустое")
 
         lesson = hw.lesson
-        prefs = parse_homework_prefs(lesson.homework_prefs)
-        checklist = _lesson_checklist(lesson)
         path = await asyncio.to_thread(
             generate_homework_pdf,
             hw.id,
@@ -203,9 +201,6 @@ async def run_build_pdf(homework_id: int, tutor_id: int) -> dict:
             lesson.lesson_date,
             hw.homework_text,
             subject=lesson.student.subject,
-            checklist=checklist or None,
-            grade=lesson.student.grade or "",
-            homework_prefs=prefs,
         )
         return {"pdf_path": path, "homework_id": hw.id}
     finally:

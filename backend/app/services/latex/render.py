@@ -340,6 +340,7 @@ def build_print_tex_document(
     student_name: str = "",
 ) -> str:
     """Собирает чистый .tex для PDF (enumerate + нормальные формулы)."""
+    del lesson_date, subject, student_name  # без шапки (ученик / предмет / дата)
     from app.services.latex_compile import PDFLATEX_PREAMBLE
 
     sections = parse_latex_homework(content)
@@ -348,15 +349,9 @@ def build_print_tex_document(
     if not sections:
         raise ValueError("Нет задач для PDF")
 
-    date_s = lesson_date.strftime("%d.%m.%Y") if hasattr(lesson_date, "strftime") else str(lesson_date)
-    subj = subject.replace("_", r"\_")
     lines = [
         PDFLATEX_PREAMBLE,
         r"\begin{document}",
-        f"\\title{{Домашнее задание по {subj}}}",
-        f"\\author{{Ученик: {student_name}}}" if student_name else "",
-        f"\\date{{{date_s}}}",
-        r"\maketitle",
     ]
     for title, tasks in sections:
         if title:

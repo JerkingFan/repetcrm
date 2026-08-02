@@ -7,10 +7,7 @@ from datetime import date, datetime
 
 from app.config import settings
 from app.services.homework_output import (
-    is_ai_garbage_latex,
     is_latex_document,
-    is_repetitive_latex,
-    needs_pdf_latex_rebuild,
 )
 from app.services.latex_compile import compile_tex_to_pdf
 from app.services.latex_convert import (
@@ -18,7 +15,6 @@ from app.services.latex_convert import (
     latex_line_to_readable_plain,
     parse_homework_content,
 )
-from app.services.smart_homework import generate_smart_homework_latex
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +24,13 @@ def ensure_media_dir():
 
 
 def homework_pdf_path(homework_id: int) -> str:
-    # v3 — сброс кэша уродливого fpdf-fallback после фикса LaTeX POST
-    return os.path.join(settings.media_dir, f"homework_{homework_id}_v3.pdf")
+    # v4 — без шапки ученик/предмет; PDF = тот же текст, что в LaTeX
+    return os.path.join(settings.media_dir, f"homework_{homework_id}_v4.pdf")
 
 
 def invalidate_homework_pdf(homework_id: int) -> None:
     for name in (
+        f"homework_{homework_id}_v4.pdf",
         f"homework_{homework_id}_v3.pdf",
         f"homework_{homework_id}.pdf",
         f"homework_{homework_id}_v2.pdf",
@@ -119,8 +116,6 @@ def _pdf_plain_fallback(path: str, lesson_date: date, content: str) -> None:
 
     writeln("Домашнее задание", size=17, bold=True, color=(30, 58, 138))
     pdf.ln(2)
-    writeln(f"Дата урока: {lesson_date.strftime('%d.%m.%Y')}", size=10, color=(100, 116, 139))
-    pdf.ln(2)
     pdf.set_draw_color(30, 58, 138)
     pdf.set_line_width(0.4)
     y = pdf.get_y()
@@ -193,19 +188,11 @@ def generate_homework_pdf(
     grade: str = "",
     homework_prefs: dict | None = None,
 ) -> str:
+    """Собирает PDF строго из homework_text — без подмены другим ДЗ."""
+    del checklist, grade, homework_prefs  # раньше тихо подменяли текст smart-генератором
     ensure_media_dir()
     path = homework_pdf_path(homework_id)
-
     text = homework_text
-    if checklist and (
-        needs_pdf_latex_rebuild(text)
-        or is_ai_garbage_latex(text)
-        or is_repetitive_latex(text)
-    ):
-        text = generate_smart_homework_latex(
-            student_name, subject, checklist, grade, homework_prefs=homework_prefs
-        )
-        logger.info("PDF: ДЗ пересобрано по чек-листу")
 
     try:
         from fpdf import FPDF  # noqa: F401
@@ -230,8 +217,7 @@ def generate_homework_pdf(
         from app.services.homework_output import homework_content_to_html
 
         html = homework_content_to_html(text, render_math_images=True)
-        title = f"ДЗ · {student_name} · {lesson_date}"
-        if _pdf_html_weasyprint(path, html, title=title):
+        if _pdf_html_weasyprint(path, html, title="Домашнее задание"):
             return path
 
         _pdf_plain_fallback(path, lesson_date, text)

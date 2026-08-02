@@ -115,35 +115,8 @@ def preview_homework_html(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from app.services.homework_output import needs_pdf_latex_rebuild
-    from app.services.homework_prefs import apply_prefs_to_checklist, parse_homework_prefs
-    from app.services.smart_homework import generate_smart_homework_latex
-
     hw = get_homework_or_404(homework_id, user, db)
-    lesson = hw.lesson
-    text = hw.homework_text
-    prefs = parse_homework_prefs(lesson.homework_prefs)
-    checklist = apply_prefs_to_checklist(
-        [
-            {
-                "topic": i.topic,
-                "work_type": i.work_type,
-                "difficulty": i.difficulty,
-                "understanding": i.understanding,
-            }
-            for i in lesson.checklist_items
-        ],
-        prefs,
-    )
-    if checklist and needs_pdf_latex_rebuild(text):
-        text = generate_smart_homework_latex(
-            lesson.student.name,
-            lesson.student.subject,
-            checklist,
-            lesson.student.grade or "",
-            homework_prefs=prefs,
-        )
-    return {"html": homework_content_to_html(text, render_math_images=True)}
+    return {"html": homework_content_to_html(hw.homework_text, render_math_images=True)}
 
 
 @router.put("/{homework_id}", response_model=HomeworkOut)
@@ -179,21 +152,6 @@ async def download_pdf(homework_id: int, user: User = Depends(get_current_user),
     if not hw.homework_text.strip():
         raise HTTPException(status_code=400, detail="Домашнее задание пустое")
     lesson = hw.lesson
-    from app.services.homework_prefs import apply_prefs_to_checklist, parse_homework_prefs
-
-    prefs = parse_homework_prefs(lesson.homework_prefs)
-    checklist = apply_prefs_to_checklist(
-        [
-            {
-                "topic": i.topic,
-                "work_type": i.work_type,
-                "difficulty": i.difficulty,
-                "understanding": i.understanding,
-            }
-            for i in lesson.checklist_items
-        ],
-        prefs,
-    )
     cached = homework_pdf_path(hw.id)
     if not homework_pdf_cache_fresh(cached, hw.updated_at):
         # Синхронная сборка: не зависаем на ARQ/worker и долгом latexonline
@@ -206,9 +164,6 @@ async def download_pdf(homework_id: int, user: User = Depends(get_current_user),
                     lesson.lesson_date,
                     hw.homework_text,
                     subject=lesson.student.subject,
-                    checklist=checklist or None,
-                    grade=lesson.student.grade or "",
-                    homework_prefs=prefs,
                 ),
                 timeout=75.0,
             )
