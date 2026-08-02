@@ -26,28 +26,27 @@ def build_direct_homework_messages(
     grade: str = "",
     homework_prefs: dict | None = None,
 ) -> list[dict[str, str]]:
+    del student_name, grade  # сохраняем сигнатуру API; в промпт не идут
     prefs = parse_homework_prefs(homework_prefs)
     lo, hi = tasks_per_topic_for_ai(prefs, len(checklist))
     topics = format_checklist_for_prompt(checklist)
-    grade_bit = f", {grade} класс" if grade else ""
 
     system = (
-        "Ты — репетитор. Составляешь домашнее задание в LaTeX.\n"
-        "Ответ: ТОЛЬКО LaTeX от \\documentclass до \\end{document}.\n"
+        "Генерируй список заданий в LaTeX.\n"
+        "Ответ: только LaTeX от \\documentclass до \\end{document}.\n"
         "Структура: \\section{тема}, затем задачи в \\begin{task}...\\end{task}.\n"
         "Формулы в $...$. Только условия задач, без решений и ответов.\n"
         "Без markdown, без текста вне LaTeX."
     )
     user = (
         f"Предмет: {subject}\n"
-        f"Ученик: {student_name}{grade_bit}\n\n"
-        f"Темы с урока:\n{topics}\n\n"
+        f"Темы:\n{topics}\n\n"
         f"Сделай {lo}–{hi} задач на каждую тему.\n"
-        "Выведи полный LaTeX-документ."
+        "Выведи полный LaTeX-документ со списком заданий."
     )
     notes = (prefs.get("special_notes") or "").strip()
     if notes:
-        user += f"\n\nПожелания репетитора: {notes}"
+        user += f"\n\nПожелания: {notes}"
 
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 

@@ -135,48 +135,11 @@ def apply_prefs_to_checklist(
 
 
 def format_checklist_for_prompt(checklist: list[dict]) -> str:
-    work_type_ru = {"theory": "теория", "practice": "практика", "test": "тест"}
-    difficulty_ru = {"basic": "базовая", "medium": "средняя", "advanced": "продвинутая"}
     lines = []
     for i, item in enumerate(checklist, 1):
-        wt = work_type_ru.get(item.get("work_type", "practice"), item.get("work_type"))
-        diff = difficulty_ru.get(item.get("difficulty", "medium"), item.get("difficulty"))
-        u = item.get("understanding", 3)
-        lines.append(
-            f"{i}. Тема: «{item['topic']}»; на уроке: {wt}; сложность: {diff}; усвоение: {u}/5"
-        )
-    return "\n".join(lines) if lines else "— темы не указаны —"
-
-
-def _understanding_rules(u: int, include_hints: bool) -> str:
-    if u >= 4:
-        base = (
-            "Усвоение 4–5: обязательно включи заметную долю задач повышенной сложности; "
-            "минимум одна нестандартная задача на тему."
-        )
-    elif u <= 2:
-        base = (
-            "Усвоение 1–2: преобладать должны базовые упражнения пошагового типа; "
-            "избегай олимпиадных и многошаговых задач без подсказок."
-        )
-    else:
-        base = "Усвоение 3: баланс базовых и средних задач."
-    if include_hints and u <= 3:
-        base += " Добавь краткие подсказки внутри формулировок сложных задач."
-    return base
-
-
-def _student_level_rules(level: str) -> str:
-    rules = {
-        "beginner": "Уровень начинающий: простые формулировки, малые числа, без лишних усложнений.",
-        "medium": "Уровень средний: стандартные школьные/курсовые задачи.",
-        "advanced": "Уровень продвинутый: можно давать нестандартные и комбинированные задачи.",
-        "exam": (
-            "Подготовка к экзамену: ориентируйся на формат экзаменационных заданий "
-            "(часть А/Б, тесты, эссе — по предмету), укажи типовые ловушки."
-        ),
-    }
-    return rules.get(level, rules["medium"])
+        topic = (item.get("topic") or "").strip() or "—"
+        lines.append(f"{i}. {topic}")
+    return "\n".join(lines) if lines else "—"
 
 
 def _task_types_rules(task_types: list[str]) -> str:
@@ -251,12 +214,12 @@ def build_system_prompt_for_homework(
     p = parse_homework_prefs(prefs)
     lo, hi = tasks_per_topic_for_ai(p, topic_count)
     return (
-        "Ты генератор LaTeX-документов для домашних заданий репетитора. "
-        "Ты НЕ чат-ассистент: не здоровайся, не объясняй, не спрашивай уточнений. "
-        f"Объём: ровно {lo}–{hi} блоков \\begin{{task}} на КАЖДУЮ тему из списка пользователя. "
+        "Генерируй список заданий в LaTeX. "
+        "Не здоровайся, не объясняй, не спрашивай уточнений. "
+        f"Объём: {lo}–{hi} блоков \\begin{{task}} на каждую тему. "
         f"Сложность: {DIFFICULTY_LABELS.get(p.get('difficulty_level', 'medium'), '')}. "
         f"Типы заданий: {_labels_list(p.get('task_types') or [], TASK_TYPE_LABELS)}. "
-        "Единственный допустимый вывод — валидный LaTeX code от \\documentclass до \\end{document}, "
+        "Вывод — только LaTeX от \\documentclass до \\end{document}, "
         "без markdown и без текста вне документа."
     )
 
@@ -268,38 +231,26 @@ def build_user_prompt_for_homework(
     grade: str = "",
     homework_prefs: dict[str, Any] | str | None = None,
 ) -> str:
+    del student_name, grade  # сохраняем сигнатуру API; в промпт не идут
     p = parse_homework_prefs(homework_prefs)
     checklist_merged = apply_prefs_to_checklist(checklist, p, force=True)
     topics_block = format_checklist_for_prompt(checklist_merged)
     lo, hi = tasks_per_topic_for_ai(p, len(checklist_merged))
-    grade_line = f"\nКласс ученика: {grade}." if grade else ""
-    u = int(p.get("understanding_global", 3))
+    notes = (p.get("special_notes") or "").strip()
+    notes_line = f"\nПожелания: {notes}" if notes else ""
 
-    return f"""Ты — репетитор по предмету «{subject}». Ученик: {student_name}.{grade_line}
+    return f"""Сгенерируй список заданий по предмету «{subject}».
 
-=== ДАННЫЕ С ЗАНЯТИЯ (обязательно учти) ===
+Темы:
 {topics_block}
 
-=== НАСТРОЙКИ РЕПЕТИТОРА (приоритет над общими шаблонами) ===
-• Фокус урока: {FOCUS_ASPECT_LABELS.get(p.get("focus_aspect", "mixed"), "")}
-• Понимание на уроке: {u}/5 — {_understanding_rules(u, p.get("include_hints"))}
-• Уровень ученика: {_student_level_rules(p.get("student_level", "medium"))}
-• Объём ДЗ: {VOLUME_LABELS.get(p.get("volume", "standard"), "")} → ровно {lo}–{hi} задач \\begin{{task}} на КАЖДУЮ тему
-• Сложность заданий: {DIFFICULTY_LABELS.get(p.get("difficulty_level", "medium"), "")}
-{_task_types_rules(p.get("task_types") or [])}
-• Памятка по теме: {"ДА" if p.get("include_cheatsheet") else "НЕТ"}
-• Подсказки в задачах: {"ДА" if p.get("include_hints") else "НЕТ"}
-• Примеры решений: {"ДА" if p.get("include_examples") else "НЕТ"}
-• Особые пожелания репетитора: {p.get("special_notes").strip() or "нет"}
+На каждую тему — {lo}–{hi} задач.
+Сложность: {DIFFICULTY_LABELS.get(p.get("difficulty_level", "medium"), "")}.
+{_task_types_rules(p.get("task_types") or [])}{notes_line}
 
-=== ФОРМАТ ВЫВОДА (ОБЯЗАТЕЛЬНО) ===
 {_latex_structure_rules(p)}
 
-Начни ответ сразу с \\documentclass — без вступления.
-Заверши на \\end{{document}} — без заключения.
-Повтор: ТОЛЬКО LaTeX code, иначе задание будет отброшено.
-
-Шаблон документа (заполни секции и task; не отдавай пустой шаблон):
+Шаблон (заполни секции и task; не отдавай пустой шаблон):
 \\documentclass[a4paper,12pt]{{article}}
 \\usepackage[T1,T2A]{{fontenc}}
 \\usepackage[utf8]{{inputenc}}
@@ -310,15 +261,13 @@ def build_user_prompt_for_homework(
 \\newenvironment{{task}}{{\\par\\noindent}}{{\\par\\medskip}}
 \\begin{{document}}
 \\title{{Домашнее задание по {subject}}}
-\\author{{Ученик: {student_name}}}
 \\date{{\\today}}
 \\maketitle
 % \\section{{Название темы}} + задачи
 \\end{{document}}
 
-Сгенерируй полный LaTeX-документ по настройкам выше.
-Выведи ТОЛЬКО LaTeX code (от \\documentclass до \\end{{document}}), без markdown и без текста снаружи.
-Задачи уникальные, с разными формулировками, строго по каждой теме из чек-листа."""
+Выведи только LaTeX от \\documentclass до \\end{{document}}.
+Только условия задач, без решений и без текста вне документа."""
 
 
 # Обратная совместимость
